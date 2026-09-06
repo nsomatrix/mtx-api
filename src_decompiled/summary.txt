@@ -1,0 +1,75 @@
+Summary for /home/manish/ninja/MODs/original/NinjaSchool_217w.jar
+Decompiled with CFR 0.152
+
+
+af
+----------------------------
+
+a(t )
+  Unable to fully structure code
+
+
+an
+----------------------------
+
+a(ce )
+  Exception : org.benf.cfr.reader.util.ConfusedCFRException: Tried to end blocks [0[TRYBLOCK]], but top level block is 50[CASE]
+e(ce )
+  Exception : org.benf.cfr.reader.util.ConfusedCFRException: Tried to end blocks [0[TRYBLOCK]], but top level block is 41[CASE]
+g(ce )
+  Exception : org.benf.cfr.reader.util.ConfusedCFRException: Tried to end blocks [0[TRYBLOCK]], but top level block is 35[CASE]
+
+
+bl
+----------------------------
+
+a()
+  Unable to fully structure code
+
+
+bp
+----------------------------
+
+al()
+  Unable to fully structure code
+
+
+ci
+----------------------------
+
+a()
+  Unable to fully structure code
+
+
+cy
+----------------------------
+
+h()
+  Unable to fully structure code
+
+
+dg
+----------------------------
+
+d()
+  Unable to fully structure code
+b(boolean )
+  Unable to fully structure code
+p(t )
+  Unable to fully structure code
+M(t )
+  Unable to fully structure code
+
+
+dn
+----------------------------
+
+run()
+  Unable to fully structure code
+
+
+main.a
+----------------------------
+
+b(int )
+  Handled duff style switch with additional control

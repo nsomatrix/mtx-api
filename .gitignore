@@ -1,0 +1,32 @@
+# ==============================================================================
+# ⚡ MTX-API — Git Ignore Rules
+# ==============================================================================
+
+# ☕ J2ME Java Build Output & Repacked JAR Artifacts
+build_output/
+dist/
+*.class
+*.log
+*.tmp
+*.bak
+
+# 🌐 Next.js Web Application (mtx-api/web)
+web/.next/
+web/node_modules/
+web/out/
+web/build/
+web/data/*.json
+web/.env
+web/.env*.local
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/.vercel
+
+# 💻 IDE & OS Metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
