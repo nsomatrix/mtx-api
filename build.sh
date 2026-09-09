@@ -6,7 +6,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB_DIR="$BASE_DIR/lib"
 SRC_DIR="$BASE_DIR/src"
 INPUT_JAR="$BASE_DIR/input/NinjaSchool_217w.jar"
-DIST_JAR="$BASE_DIR/dist/NinjaSchool_217w_MatrixMOD.jar"
+DIST_JAR="$BASE_DIR/dist/mtx-api.jar"
 BUILD_DIR="$BASE_DIR/build_output"
 
 echo "=================================================="
@@ -15,7 +15,7 @@ echo "=================================================="
 
 # Clean build directory
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR/mod_classes" "$BUILD_DIR/patcher_classes" "$BUILD_DIR/patched_classes" "$BASE_DIR/dist"
+mkdir -p "$BUILD_DIR/mod_classes" "$BUILD_DIR/patcher_classes" "$BUILD_DIR/patched_classes" "$BUILD_DIR/meta/META-INF" "$BASE_DIR/dist"
 
 echo "🔨 [1/4] Compiling MatrixAPI Facade & Modular Subpackages (Target: J2ME CLDC 1.1 / MIDP 2.0)..."
 MOD_FILES=$(find "$SRC_DIR/mod" -name "*.java")
@@ -34,12 +34,25 @@ echo "⚡ [3/4] Instrumenting Game Bytecode with Deep Logging Hooks..."
 java -cp "$BUILD_DIR/patcher_classes:$LIB_DIR/javassist.jar:$LIB_DIR/midpapi20.jar:$LIB_DIR/cldcapi11.jar:$INPUT_JAR:$BUILD_DIR/mod_classes" \
   patcher.Patcher "$INPUT_JAR" "$BUILD_DIR/mod_classes" "$BUILD_DIR/patched_classes"
 
-echo "📦 [4/4] Repacking final Runnable J2ME JAR..."
+echo "📦 [4/4] Repacking final Runnable J2ME JAR (mtx-api.jar with internal branding)..."
 cp "$INPUT_JAR" "$DIST_JAR"
 cd "$BUILD_DIR/patched_classes"
 zip -u -r "$DIST_JAR" . > /dev/null
 cd "$BUILD_DIR/mod_classes"
 zip -u -r "$DIST_JAR" mod/ > /dev/null
+
+# Update internal J2ME Manifest to mtx-api
+cat << 'EOF' > "$BUILD_DIR/meta/META-INF/MANIFEST.MF"
+Manifest-Version: 1.0
+MIDlet-1: mtx-api,/icon.png,main.GameMidlet
+MIDlet-Vendor: mtx-api
+MicroEdition-Configuration: CLDC-1.1
+MIDlet-Name: mtx-api
+MIDlet-Version: 1.0.0
+MicroEdition-Profile: MIDP-2.0
+EOF
+cd "$BUILD_DIR/meta"
+zip -u -r "$DIST_JAR" META-INF/MANIFEST.MF > /dev/null
 
 echo "=================================================="
 echo " ✅ BUILD SUCCESSFUL WITH DEEP LOGGING!"

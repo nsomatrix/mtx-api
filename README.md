@@ -47,7 +47,7 @@ chmod +x build.sh
 ./build.sh
 ```
 
-The compiled and patched game JAR will be generated in `dist/NinjaSchool_217w_MatrixMOD.jar`.
+The compiled and patched game JAR will be generated in `dist/mtx-api.jar`.
 
 ---
 

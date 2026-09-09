@@ -14,7 +14,7 @@ To reverse-engineer, modify, compile, and run the J2ME application, the followin
 | **Javassist (`lib/javassist.jar`)** | Bytecode Manipulation & Injection | Instruments bytecode at build time without needing full source re-compilation. |
 | **ECJ Compiler (`lib/ecj.jar`)** | Java Compiler for J2ME | Compiles mod code targeting CLDC 1.1 / MIDP 2.0 Java runtimes. |
 | **J2ME API Stubs (`midpapi20.jar`, `cldcapi11.jar`)** | Classpath Dependencies | Provides J2ME MIDlet runtime stubs during compilation. |
-| **Neutron / MicroEmulator** | J2ME Emulator | Execution environment for testing the patched runnable JAR (`dist/NinjaSchool_217w_MatrixMOD.jar`). |
+| **Neutron / MicroEmulator** | J2ME Emulator | Execution environment for testing the patched runnable JAR (`dist/mtx-api.jar`). |
 | **Automated Build Script (`build.sh`)** | Pipeline Automation | One-click compilation, bytecode patching, and JAR repacking script. |
 
 ---
@@ -45,7 +45,7 @@ mtx-api/
 │   └── patcher/
 │       └── Patcher.java                 # Javassist bytecode instrumenter script
 └── dist/
-    └── NinjaSchool_217w_MatrixMOD.jar   # Final runnable, patched game JAR
+    └── mtx-api.jar                      # Final runnable, patched game JAR
 ```
 
 ---

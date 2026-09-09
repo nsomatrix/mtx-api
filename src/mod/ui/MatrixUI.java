@@ -11,7 +11,7 @@ public class MatrixUI {
      * Appends MatrixAPI as the VERY FIRST option (index 0) in the main game menu.
      */
     public static void addMatrixMenuItem(aa vector) {
-        bd matrixBtn = new bd("MatrixAPI", 888999);
+        bd matrixBtn = new bd("MTX-API", 888999);
         vector.insertElementAt(matrixBtn, 0); // Position 0: Very first option!
     }
 
