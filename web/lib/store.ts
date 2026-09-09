@@ -271,11 +271,13 @@ export function deletePlayerByName(name: string): boolean {
   return false;
 }
 
+export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
+
 // Chat Store Functions (Atomic JSON File Persistence + Persistent Outbound Queue + Ephemeral Memory Cache)
 export function getAllChatMessages(
   channel?: string,
   sinceTimestamp?: string,
-  limit: number = 500
+  limit: number = 1500
 ): ChatMessage[] {
   const filePath = getChatFilePath();
   let loaded: ChatMessage[] = globalStore._matrixChatStore || [];
@@ -292,7 +294,11 @@ export function getAllChatMessages(
     console.warn('[STORE] Error reading chat file, using in-memory store:', e);
   }
 
-  let results = loaded;
+  const now = Date.now();
+  let results = loaded.filter((m) => {
+    const t = new Date(m.timestamp).getTime();
+    return !isNaN(t) && now - t < CHAT_RETENTION_MS;
+  });
 
   // Industry Standard Cursor / Delta filtering
   if (sinceTimestamp) {
@@ -368,9 +374,9 @@ export function saveChatMessage(data: {
 
   messages.unshift(msg);
 
-  // Maintain latest 500 live messages in memory & disk buffer
-  if (messages.length > 500) {
-    messages = messages.slice(0, 500);
+  // Maintain latest 2,000 live messages in memory & disk buffer
+  if (messages.length > 2000) {
+    messages = messages.slice(0, 2000);
   }
 
   // Atomically update in-memory and queue disk write
@@ -380,13 +386,24 @@ export function saveChatMessage(data: {
     console.warn('[STORE] Error in chatWriteMutex:', e);
   });
 
-  // Industry Standard: Non-blocking sync to Firebase Firestore for zero-latency real-time push
+  // Industry-Standard Rolling Ring Buffer with 7-Day TTL in a Single Document:
+  // Zero Database Clogging: Exactly 1 document ('telemetry_chat/live_stream') exists in Firestore forever.
   if (db) {
     try {
-      const docRef = doc(db, 'telemetry_chat', msg.id);
-      setDoc(docRef, { ...msg }, { merge: true }).catch((err) => {
-        // Non-blocking warning if Firestore rules or offline mode
-        console.warn('[STORE] Firestore chat sync warning:', err);
+      const now = Date.now();
+      const freshBuffer = messages
+        .filter((m) => {
+          const t = new Date(m.timestamp).getTime();
+          return !isNaN(t) && now - t < CHAT_RETENTION_MS;
+        })
+        .slice(0, 1500);
+
+      const streamDocRef = doc(db, 'telemetry_chat', 'live_stream');
+      setDoc(streamDocRef, {
+        messages: freshBuffer,
+        lastUpdated: new Date().toISOString(),
+      }, { merge: true }).catch((err) => {
+        console.warn('[STORE] Firestore live_stream sync warning:', err);
       });
     } catch (e) {
       // Ignore background firestore initialization glitches
@@ -396,12 +413,25 @@ export function saveChatMessage(data: {
   return msg;
 }
 
+
 export function clearAllChatMessages() {
   globalStore._matrixChatStore = [];
   globalStore._pendingOutboundChatQueue = [];
   saveAllChatMessages([]);
   savePendingOutboundChat([]);
+
+  // Reset the single Firestore live_stream document atomically
+  if (db) {
+    try {
+      const streamDocRef = doc(db, 'telemetry_chat', 'live_stream');
+      setDoc(streamDocRef, {
+        messages: [],
+        lastUpdated: new Date().toISOString(),
+      }, { merge: true }).catch(() => {});
+    } catch (e) {}
+  }
 }
+
 
 function loadPendingOutboundChat(): ChatMessage[] {
   const filePath = getPendingChatFilePath();

@@ -1,6 +1,7 @@
 import { ChatMessage } from './store';
 import { db } from './firebase';
 import {
+  doc,
   collection,
   query,
   orderBy,
@@ -32,7 +33,7 @@ export function getCachedChatMessages(): ChatMessage[] {
 export function saveCachedChatMessages(messages: ChatMessage[]) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(messages.slice(0, 300)));
+    localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(messages.slice(0, 1000)));
   } catch (e) {}
 }
 
@@ -72,7 +73,7 @@ export function subscribeToChatTelemetry(
     const merged = Array.from(map.values()).sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
-    const trimmed = merged.slice(0, 500);
+    const trimmed = merged.slice(0, 1500);
     inMemoryMessages = trimmed;
     if (trimmed[0]?.timestamp) {
       latestTimestamp = trimmed[0].timestamp;
@@ -80,6 +81,7 @@ export function subscribeToChatTelemetry(
     saveCachedChatMessages(trimmed);
     return trimmed;
   };
+
 
   const startDeltaPolling = () => {
     if (pollingInterval || isUnmounted) return;
@@ -111,44 +113,58 @@ export function subscribeToChatTelemetry(
     pollingInterval = setInterval(poll, 2500);
   };
 
-  // Attempt Engine 1: Firebase Firestore Real-Time WebSocket Push
+  // Attempt Engine 1: Firebase Firestore Real-Time WebSocket Push (Single Rolling Document live_stream)
   if (db) {
     try {
       onStatusChange?.({ mode: 'CONNECTING', label: 'CONNECTING FIREBASE...' });
-      const q = query(
-        collection(db, 'telemetry_chat'),
-        orderBy('timestamp', 'desc'),
-        firestoreLimit(100)
-      );
+      const streamDocRef = doc(db, 'telemetry_chat', 'live_stream');
 
       unsubscribeFirestore = onSnapshot(
-        q,
-        (snapshot) => {
+        streamDocRef,
+        (snap) => {
           if (isUnmounted) return;
-          const liveList: ChatMessage[] = [];
-          snapshot.forEach((doc) => {
-            const d = doc.data() as ChatMessage;
-            if (d && d.message) {
-              liveList.push({
-                id: doc.id || d.id,
-                channel: ((d.channel || 'MAP').toUpperCase()) as ChatMessage['channel'],
-                sender: d.sender || 'UNKNOWN',
-                recipient: d.recipient,
-                message: d.message,
-                timestamp: d.timestamp || new Date().toISOString(),
-              });
-            }
-          });
+          if (snap.exists()) {
+            const data = snap.data();
+            const rawMessages: ChatMessage[] = Array.isArray(data.messages) ? data.messages : [];
+            const now = Date.now();
+            const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
 
-          if (liveList.length > 0) {
-            const updated = mergeMessages(liveList);
-            onUpdate(updated);
+            const liveList: ChatMessage[] = [];
+            rawMessages.forEach((d) => {
+              if (d && d.message) {
+                const msgTime = new Date(d.timestamp).getTime();
+                // Filter out any message exceeding the 7-day retention window
+                if (!isNaN(msgTime) && now - msgTime < CHAT_RETENTION_MS) {
+                  liveList.push({
+                    id: d.id,
+                    channel: ((d.channel || 'MAP').toUpperCase()) as ChatMessage['channel'],
+                    sender: d.sender || 'UNKNOWN',
+                    recipient: d.recipient,
+                    message: d.message,
+                    timestamp: d.timestamp || new Date().toISOString(),
+                  });
+                }
+              }
+            });
+
+
+            if (liveList.length > 0) {
+              const updated = mergeMessages(liveList);
+              onUpdate(updated);
+            } else if (rawMessages.length === 0) {
+              // Explicit clear event received from server
+              inMemoryMessages = [];
+              clearCachedChatMessages();
+              onUpdate([]);
+            }
+            onStatusChange?.({ mode: 'REALTIME', label: 'REAL-TIME (WS)' });
+          } else {
+            // Document doesn't exist yet, start fallback poller until first message is logged
+            startDeltaPolling();
           }
-          onStatusChange?.({ mode: 'REALTIME', label: 'REAL-TIME (WS)' });
         },
         (error) => {
-          console.warn('[ChatStore] Firestore subscription fallback to polling:', error.message);
-          // Graceful fallback to Engine 2
+          console.warn('[ChatStore] Firestore live_stream fallback to delta polling:', error.message);
           startDeltaPolling();
         }
       );
@@ -160,6 +176,7 @@ export function subscribeToChatTelemetry(
     // Engine 2: Fallback Delta Poller
     startDeltaPolling();
   }
+
 
   return () => {
     isUnmounted = true;
@@ -250,7 +267,7 @@ export async function fetchLatestTelemetry(): Promise<ChatMessage[]> {
       const merged = Array.from(map.values()).sort(
         (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       );
-      const trimmed = merged.slice(0, 500);
+      const trimmed = merged.slice(0, 1500);
       saveCachedChatMessages(trimmed);
       return trimmed;
     }

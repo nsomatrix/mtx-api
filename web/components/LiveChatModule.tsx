@@ -180,11 +180,21 @@ export function LiveChatModule() {
   const formatTime = (isoString: string) => {
     try {
       const date = new Date(isoString);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const now = new Date();
+      const isToday =
+        date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+
+      if (isToday) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+      return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     } catch (e) {
       return '';
     }
   };
+
 
   const filteredMessages = selectedChannel === 'ALL'
     ? messages
@@ -300,7 +310,7 @@ export function LiveChatModule() {
           <div className="flex items-center space-x-2">
             <span className="text-zinc-400 text-[11px] uppercase tracking-wider font-semibold">FEED TELEMETRY</span>
             <span className="text-zinc-600">•</span>
-            <span className="text-violet-400 text-[11px] font-mono">ATOMIC BUFFER</span>
+            <span className="text-violet-400 text-[11px] font-mono">7-DAY STREAM BUFFER</span>
           </div>
           <span className="text-zinc-500 text-[11px]">{filteredMessages.length} LOGS</span>
         </div>
