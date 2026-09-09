@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { db } from './firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
@@ -120,6 +122,13 @@ function getChatFilePath(): string {
     return path.join(os.tmpdir(), 'chat.json');
   }
   return path.join(process.cwd(), 'data', 'chat.json');
+}
+
+function getPendingChatFilePath(): string {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    return path.join(os.tmpdir(), 'pending_chat.json');
+  }
+  return path.join(process.cwd(), 'data', 'pending_chat.json');
 }
 
 /**
@@ -262,8 +271,12 @@ export function deletePlayerByName(name: string): boolean {
   return false;
 }
 
-// Chat Store Functions (Atomic JSON File Persistence + Ephemeral Memory Cache)
-export function getAllChatMessages(): ChatMessage[] {
+// Chat Store Functions (Atomic JSON File Persistence + Persistent Outbound Queue + Ephemeral Memory Cache)
+export function getAllChatMessages(
+  channel?: string,
+  sinceTimestamp?: string,
+  limit: number = 500
+): ChatMessage[] {
   const filePath = getChatFilePath();
   let loaded: ChatMessage[] = globalStore._matrixChatStore || [];
   try {
@@ -278,13 +291,38 @@ export function getAllChatMessages(): ChatMessage[] {
   } catch (e) {
     console.warn('[STORE] Error reading chat file, using in-memory store:', e);
   }
-  return loaded;
+
+  let results = loaded;
+
+  // Industry Standard Cursor / Delta filtering
+  if (sinceTimestamp) {
+    const sinceMs = new Date(sinceTimestamp).getTime();
+    if (!isNaN(sinceMs)) {
+      results = results.filter((m) => {
+        const msgMs = new Date(m.timestamp).getTime();
+        return !isNaN(msgMs) && msgMs > sinceMs;
+      });
+    }
+  }
+
+  if (channel && channel !== 'ALL') {
+    results = results.filter((m) => m.channel === channel.toUpperCase());
+  }
+
+  if (limit > 0 && results.length > limit) {
+    results = results.slice(0, limit);
+  }
+
+  return results;
 }
 
 export function saveAllChatMessages(messages: ChatMessage[]) {
   globalStore._matrixChatStore = messages;
   safeAtomicWriteJson(getChatFilePath(), messages);
 }
+
+// In-process serialization mutex to prevent concurrent read-modify-write race conditions
+let chatWriteMutex: Promise<void> = Promise.resolve();
 
 export function saveChatMessage(data: {
   channel: string;
@@ -335,7 +373,26 @@ export function saveChatMessage(data: {
     messages = messages.slice(0, 500);
   }
 
-  saveAllChatMessages(messages);
+  // Atomically update in-memory and queue disk write
+  chatWriteMutex = chatWriteMutex.then(() => {
+    saveAllChatMessages(messages);
+  }).catch((e) => {
+    console.warn('[STORE] Error in chatWriteMutex:', e);
+  });
+
+  // Industry Standard: Non-blocking sync to Firebase Firestore for zero-latency real-time push
+  if (db) {
+    try {
+      const docRef = doc(db, 'telemetry_chat', msg.id);
+      setDoc(docRef, { ...msg }, { merge: true }).catch((err) => {
+        // Non-blocking warning if Firestore rules or offline mode
+        console.warn('[STORE] Firestore chat sync warning:', err);
+      });
+    } catch (e) {
+      // Ignore background firestore initialization glitches
+    }
+  }
+
   return msg;
 }
 
@@ -343,6 +400,30 @@ export function clearAllChatMessages() {
   globalStore._matrixChatStore = [];
   globalStore._pendingOutboundChatQueue = [];
   saveAllChatMessages([]);
+  savePendingOutboundChat([]);
+}
+
+function loadPendingOutboundChat(): ChatMessage[] {
+  const filePath = getPendingChatFilePath();
+  let loaded: ChatMessage[] = globalStore._pendingOutboundChatQueue || [];
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        loaded = parsed;
+        globalStore._pendingOutboundChatQueue = parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[STORE] Error reading pending chat file:', e);
+  }
+  return loaded;
+}
+
+function savePendingOutboundChat(queue: ChatMessage[]) {
+  globalStore._pendingOutboundChatQueue = queue;
+  safeAtomicWriteJson(getPendingChatFilePath(), queue);
 }
 
 export function queueOutboundChatMessage(data: {
@@ -350,9 +431,7 @@ export function queueOutboundChatMessage(data: {
   recipient?: string;
   message: string;
 }): ChatMessage {
-  if (!globalStore._pendingOutboundChatQueue) {
-    globalStore._pendingOutboundChatQueue = [];
-  }
+  const pending = loadPendingOutboundChat();
 
   // First save to historical chat stream as WEB_CONSOLE
   const msg = saveChatMessage({
@@ -362,17 +441,20 @@ export function queueOutboundChatMessage(data: {
     message: data.message,
   });
 
-  globalStore._pendingOutboundChatQueue.push(msg);
+  pending.push(msg);
+  savePendingOutboundChat(pending);
   return msg;
 }
 
 export function popPendingOutboundChatMessages(): ChatMessage[] {
-  if (!globalStore._pendingOutboundChatQueue) {
-    globalStore._pendingOutboundChatQueue = [];
+  const pending = loadPendingOutboundChat();
+  if (pending.length === 0) {
     return [];
   }
-  return globalStore._pendingOutboundChatQueue.splice(0);
+  savePendingOutboundChat([]);
+  return pending;
 }
+
 
 // User-Isolated Saved Targets Persistence
 function loadUserTargetsMap(): Record<string, PlayerProfile[]> {

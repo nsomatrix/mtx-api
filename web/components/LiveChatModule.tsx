@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageSquare,
   RefreshCw,
@@ -15,14 +15,27 @@ import {
   AlertTriangle,
   X,
   Check,
+  Lock,
 } from 'lucide-react';
 import { ChatMessage } from '@/lib/store';
+import { useAuth } from '@/context/AuthContext';
+import {
+  subscribeToChatTelemetry,
+  sendOutboundChat,
+  clearChatTelemetry,
+  fetchLatestTelemetry,
+  ChatSyncStatus,
+} from '@/lib/chatStore';
 
 export function LiveChatModule() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>('ALL');
   const [loading, setLoading] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<ChatSyncStatus>({
+    mode: 'CONNECTING',
+    label: 'CONNECTING...',
+  });
   const [showClearModal, setShowClearModal] = useState(false);
 
   // Outbound Web Chat Dispatch State
@@ -35,45 +48,19 @@ export function LiveChatModule() {
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
 
-  const fetchChatMessages = useCallback(async () => {
-    try {
-      const res = await fetch('/api/v1/chat');
-      if (res.ok) {
-        const data = await res.json();
-        const incoming: ChatMessage[] = data.messages || [];
-        // Atomic single source of truth: direct state update from server
-        setMessages(incoming);
+  // Real-time Push Stream / Delta Sync Subscription
+  useEffect(() => {
+    const unsubscribe = subscribeToChatTelemetry(
+      (incomingMessages) => {
+        setMessages(incomingMessages);
+        setLoading(false);
+      },
+      (status) => {
+        setSyncStatus(status);
       }
-    } catch (e) {
-      console.error('Error fetching chat messages:', e);
-    }
+    );
+    return () => unsubscribe();
   }, []);
-
-  useEffect(() => {
-    fetchChatMessages();
-  }, [fetchChatMessages]);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(fetchChatMessages, 3000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, fetchChatMessages]);
-
-  // Industry Standard: Refetch immediately when tab visibility changes or window gains focus
-  useEffect(() => {
-    const handleVisibilityOrFocus = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        fetchChatMessages();
-      }
-    };
-
-    window.addEventListener('focus', handleVisibilityOrFocus);
-    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-    return () => {
-      window.removeEventListener('focus', handleVisibilityOrFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-    };
-  }, [fetchChatMessages]);
 
   // Click outside listener for custom channel dropdown
   useEffect(() => {
@@ -86,18 +73,29 @@ export function LiveChatModule() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    try {
+      const updated = await fetchLatestTelemetry();
+      setMessages(updated);
+    } catch (e) {
+      console.warn('Manual refresh failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   const handleConfirmClearHistory = async () => {
     setShowClearModal(false);
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/chat', { method: 'DELETE' });
-      if (res.ok) {
+      const token = user ? await user.getIdToken() : (process.env.NODE_ENV !== 'production' ? 'dev_operator' : null);
+      const res = await clearChatTelemetry(token);
+      if (res.success) {
         setMessages([]);
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.removeItem('mtx_chat_telemetry_cache');
-          } catch (e) {}
-        }
+      } else {
+        alert(res.error || 'Failed to clear chat history');
       }
     } catch (e) {
       console.error('Error clearing chat history:', e);
@@ -118,24 +116,22 @@ export function LiveChatModule() {
     setSending(true);
     setSendStatus(null);
     try {
-      const res = await fetch('/api/v1/chat/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const token = user ? await user.getIdToken() : (process.env.NODE_ENV !== 'production' ? 'dev_operator' : null);
+      const res = await sendOutboundChat(
+        {
           channel: outboundChannel,
-          recipient: outboundRecipient.trim(),
+          recipient: outboundRecipient.trim() || undefined,
           message: outboundMessage.trim(),
-        }),
-      });
+        },
+        token
+      );
 
-      if (res.ok) {
+      if (res.success) {
         setOutboundMessage('');
         setSendStatus('Dispatched to game!');
-        fetchChatMessages();
         setTimeout(() => setSendStatus(null), 4000);
       } else {
-        const data = await res.json();
-        setSendStatus(`Failed: ${data.error || 'Server error'}`);
+        setSendStatus(`Failed: ${res.error}`);
         setTimeout(() => setSendStatus(null), 4000);
       }
     } catch (err: any) {
@@ -192,7 +188,7 @@ export function LiveChatModule() {
 
   const filteredMessages = selectedChannel === 'ALL'
     ? messages
-    : messages.filter((m) => m.channel === selectedChannel);
+    : messages.filter((m) => (m.channel || '').toUpperCase() === selectedChannel.toUpperCase());
 
   const channels = [
     { id: 'ALL', label: 'All Channels' },
@@ -231,38 +227,47 @@ export function LiveChatModule() {
       {/* Module Controls Bar */}
       <div className="p-3 sm:p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-xl flex flex-col gap-3">
         {/* Top Controls Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center space-x-2 min-w-0">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center space-x-2.5 min-w-0">
             <MessageSquare className="w-4 h-4 text-violet-400 shrink-0" />
             <span className="font-mono text-xs font-bold text-zinc-200 truncate">CHAT CONSOLE</span>
+            
+            {/* Real-time Push / Delta Status Indicator */}
+            <div
+              className={`flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border shrink-0 ${
+                syncStatus.mode === 'REALTIME'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : syncStatus.mode === 'DELTA'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  syncStatus.mode === 'REALTIME'
+                    ? 'bg-emerald-400 animate-pulse'
+                    : syncStatus.mode === 'DELTA'
+                    ? 'bg-amber-400'
+                    : 'bg-zinc-500 animate-spin'
+                }`}
+              />
+              <span>{syncStatus.label}</span>
+            </div>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
             <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-all outline-none border-0 ${
-                autoRefresh
-                  ? 'bg-violet-500/10 text-violet-400 border-violet-500/20'
-                  : 'bg-zinc-900 text-zinc-500 border-zinc-800'
-              }`}
+              onClick={handleManualRefresh}
+              disabled={loading}
+              className="p-1.5 rounded-lg bg-zinc-800/80 text-zinc-300 hover:text-white border border-zinc-700/50 transition-colors outline-none cursor-pointer disabled:opacity-50"
+              title="Force Sync Messages"
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-violet-400 animate-pulse' : 'bg-zinc-600'}`}
-              />
-              <span className="hidden xs:inline">{autoRefresh ? 'LIVE' : 'PAUSED'}</span>
-            </button>
-
-            <button
-              onClick={fetchChatMessages}
-              className="p-1.5 rounded-lg bg-zinc-800/80 text-zinc-300 hover:text-white border border-zinc-700/50 transition-colors outline-none"
-              title="Refresh Messages"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-violet-400' : ''}`} />
             </button>
 
             <button
               onClick={() => setShowClearModal(true)}
-              className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors outline-none"
+              className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors outline-none cursor-pointer"
               title="Clear Chat Logs"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -276,7 +281,7 @@ export function LiveChatModule() {
             <button
               key={ch.id}
               onClick={() => setSelectedChannel(ch.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono whitespace-nowrap transition-all shrink-0 border-0 outline-none ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-mono whitespace-nowrap transition-all shrink-0 border-0 outline-none cursor-pointer ${
                 selectedChannel === ch.id
                   ? 'bg-violet-500/15 text-violet-400 font-bold border border-violet-500/30 shadow-[0_0_10px_rgba(119,68,255,0.15)]'
                   : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60 border border-transparent'
@@ -292,7 +297,11 @@ export function LiveChatModule() {
       <div className="rounded-xl bg-zinc-950 border border-zinc-800/80 overflow-hidden shadow-2xl flex flex-col">
         {/* Terminal Sub-header */}
         <div className="px-3 py-2.5 bg-zinc-900/80 border-b border-zinc-800/80 flex items-center justify-between text-xs font-mono">
-          <span className="text-zinc-400 text-[11px] uppercase tracking-wider font-semibold">FEED TELEMETRY</span>
+          <div className="flex items-center space-x-2">
+            <span className="text-zinc-400 text-[11px] uppercase tracking-wider font-semibold">FEED TELEMETRY</span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-violet-400 text-[11px] font-mono">ATOMIC BUFFER</span>
+          </div>
           <span className="text-zinc-500 text-[11px]">{filteredMessages.length} LOGS</span>
         </div>
 
@@ -305,7 +314,7 @@ export function LiveChatModule() {
               </div>
               <p className="text-zinc-400 text-xs font-sans">No chat messages intercepted yet</p>
               <p className="text-zinc-600 text-[11px] max-w-xs mx-auto font-mono">
-                Messages from the J2ME mod client stream here in real time.
+                Messages from active J2ME clients stream here in real time via atomic channels.
               </p>
             </div>
           ) : (
@@ -340,10 +349,20 @@ export function LiveChatModule() {
 
         {/* Outbound Web Chat Command Bar */}
         <form onSubmit={handleSendOutboundMessage} className="p-3 bg-zinc-900/90 border-t border-zinc-800/80 space-y-2.5">
-          <div className="flex items-center justify-between gap-2 text-xs font-mono">
-            <div className="flex items-center space-x-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-2 text-xs font-mono flex-wrap">
+            <div className="flex items-center space-x-2 min-w-0">
               <Send className="w-3 h-3 text-violet-400 shrink-0" />
               <span className="font-semibold text-zinc-300 truncate text-[11px]">OUTBOUND COMMAND DISPATCH</span>
+              {user ? (
+                <span className="text-[10px] text-zinc-400 font-mono hidden xs:inline">
+                  • OPERATOR: <span className="text-violet-400 font-semibold">{user.displayName || user.email?.split('@')[0]}</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-amber-400/90 font-mono flex items-center space-x-1">
+                  <Lock className="w-2.5 h-2.5 shrink-0" />
+                  <span className="hidden xs:inline">SIGN IN REQUIRED</span>
+                </span>
+              )}
             </div>
             {sendStatus && (
               <span className="text-[10px] text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20 shrink-0 animate-pulse font-mono">
@@ -381,7 +400,7 @@ export function LiveChatModule() {
                             setOutboundChannel(option.id);
                             setIsChannelDropdownOpen(false);
                           }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors border-0 outline-none ${
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors border-0 outline-none cursor-pointer ${
                             isSelected
                               ? 'bg-zinc-900 font-bold ' + option.color
                               : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
@@ -423,7 +442,7 @@ export function LiveChatModule() {
               <button
                 type="submit"
                 disabled={sending || !outboundMessage.trim()}
-                className="px-4 py-2 rounded-xl bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 border border-violet-500/30 text-xs font-mono font-semibold flex items-center justify-center space-x-1.5 transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed outline-none"
+                className="px-4 py-2 rounded-xl bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 border border-violet-500/30 text-xs font-mono font-semibold flex items-center justify-center space-x-1.5 transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed outline-none cursor-pointer"
               >
                 <Send className={`w-3.5 h-3.5 ${sending ? 'animate-bounce' : ''}`} />
                 <span className="hidden sm:inline">SEND</span>
@@ -446,6 +465,11 @@ export function LiveChatModule() {
                 <p className="text-xs text-zinc-400 font-sans leading-relaxed">
                   Are you sure you want to clear all intercepted chat history? This action cannot be undone.
                 </p>
+                {!user && (
+                  <p className="text-[11px] text-amber-400 font-mono mt-1">
+                    Note: Operator sign-in required in production to authorize deletion.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -453,14 +477,14 @@ export function LiveChatModule() {
               <button
                 type="button"
                 onClick={() => setShowClearModal(false)}
-                className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors outline-none"
+                className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors outline-none cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmClearHistory}
-                className="px-4 py-2 rounded-xl bg-rose-500 text-white font-bold hover:bg-rose-600 transition-colors shadow-[0_0_15px_rgba(244,63,94,0.2)] outline-none"
+                className="px-4 py-2 rounded-xl bg-rose-500 text-white font-bold hover:bg-rose-600 transition-colors shadow-[0_0_15px_rgba(244,63,94,0.2)] outline-none cursor-pointer"
               >
                 Confirm Clear
               </button>

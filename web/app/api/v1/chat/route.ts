@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAllChatMessages, saveChatMessage, clearAllChatMessages, touchModClientHeartbeat } from '@/lib/store';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
+import { verifyAuthToken } from '@/lib/authVerify';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,17 +13,17 @@ const NO_CACHE_HEADERS = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const channel = searchParams.get('channel')?.toUpperCase();
+  const since = searchParams.get('since') || undefined;
+  const limitParam = searchParams.get('limit');
+  const limit = limitParam ? parseInt(limitParam, 10) : 500;
 
-  let messages = getAllChatMessages();
-
-  if (channel && channel !== 'ALL') {
-    messages = messages.filter((m) => m.channel === channel);
-  }
+  const messages = getAllChatMessages(channel, since, limit);
 
   return NextResponse.json(
     {
       status: 200,
       count: messages.length,
+      since: since || null,
       messages: messages,
     },
     {
@@ -38,6 +39,20 @@ export async function POST(request: Request) {
   const rate = checkRateLimit(ip, 120, 60000);
   if (rate.isLimited) {
     return rateLimitResponse(rate.resetMs);
+  }
+
+  // Optional API key enforcement if MATRIX_API_TOKEN is configured in environment
+  const requiredToken = process.env.MATRIX_API_TOKEN;
+  if (requiredToken) {
+    const provided =
+      request.headers.get('x-matrix-token') ||
+      request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    if (provided !== requiredToken) {
+      return NextResponse.json(
+        { status: 401, error: 'Unauthorized: Invalid or missing Matrix API token' },
+        { status: 401, headers: NO_CACHE_HEADERS }
+      );
+    }
   }
 
   try {
@@ -76,7 +91,16 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const authResult = verifyAuthToken(request);
+  if (!authResult.valid) {
+    return NextResponse.json(
+      { status: 401, error: `Unauthorized: ${authResult.error || 'Operator authentication required to purge telemetry history'}` },
+      { status: 401, headers: NO_CACHE_HEADERS }
+    );
+  }
+
+
   clearAllChatMessages();
   return NextResponse.json(
     {
@@ -86,3 +110,4 @@ export async function DELETE() {
     { status: 200, headers: NO_CACHE_HEADERS }
   );
 }
+

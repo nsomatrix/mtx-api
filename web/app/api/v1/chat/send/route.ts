@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { queueOutboundChatMessage, popPendingOutboundChatMessages } from '@/lib/store';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
+import { verifyAuthToken } from '@/lib/authVerify';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,16 @@ export async function POST(request: Request) {
   if (rate.isLimited) {
     return rateLimitResponse(rate.resetMs);
   }
+
+  // Operator Authorization Guard: cryptographically verifies JWT or administrative operator secret
+  const authResult = verifyAuthToken(request);
+  if (!authResult.valid) {
+    return NextResponse.json(
+      { status: 401, error: `Unauthorized: ${authResult.error || 'Operator authentication required to dispatch in-game chat commands.'}` },
+      { status: 401, headers: NO_CACHE_HEADERS }
+    );
+  }
+
 
   try {
     const body = await request.json();

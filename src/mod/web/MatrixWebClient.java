@@ -585,51 +585,87 @@ public class MatrixWebClient {
         webThread.start();
     }
 
-    public static void postChatMessage(final String channel, final String sender, final String recipient, final String message) {
+    private static java.util.Vector chatDispatchQueue = new java.util.Vector();
+    private static Thread chatDispatchThread = null;
+    private static final int MAX_CHAT_QUEUE = 40;
+
+    public static synchronized void postChatMessage(final String channel, final String sender, final String recipient, final String message) {
         if (!enableWebSync || message == null || message.trim().length() == 0) return;
         final String postUrl = getChatEndpointUrl();
         if (postUrl == null) return;
 
-        Thread webThread = new Thread(new Runnable() {
+        StringBuffer sb = new StringBuffer();
+        sb.append("{");
+        sb.append("\"channel\":").append(quote(channel)).append(",");
+        sb.append("\"sender\":").append(quote(sender)).append(",");
+        sb.append("\"recipient\":").append(quote(recipient != null ? recipient : "")).append(",");
+        sb.append("\"message\":").append(quote(message));
+        sb.append("}");
+        String jsonPayload = sb.toString();
+
+        if (chatDispatchQueue.size() >= MAX_CHAT_QUEUE) {
+            chatDispatchQueue.removeElementAt(0); // Drop oldest to prevent memory exhaustion on J2ME
+        }
+        chatDispatchQueue.addElement(jsonPayload);
+
+        startChatWorkerThread(postUrl);
+    }
+
+    private static synchronized void startChatWorkerThread(final String postUrl) {
+        if (chatDispatchThread != null && chatDispatchThread.isAlive()) {
+            return;
+        }
+
+        chatDispatchThread = new Thread(new Runnable() {
             public void run() {
-                HttpConnection conn = null;
-                OutputStream os = null;
-                InputStream is = null;
-                try {
-                    StringBuffer sb = new StringBuffer();
-                    sb.append("{");
-                    sb.append("\"channel\":").append(quote(channel)).append(",");
-                    sb.append("\"sender\":").append(quote(sender)).append(",");
-                    sb.append("\"recipient\":").append(quote(recipient != null ? recipient : "")).append(",");
-                    sb.append("\"message\":").append(quote(message));
-                    sb.append("}");
-                    String jsonPayload = sb.toString();
+                while (true) {
+                    String payload = null;
+                    synchronized (MatrixWebClient.class) {
+                        if (chatDispatchQueue.size() == 0) {
+                            chatDispatchThread = null;
+                            break;
+                        }
+                        payload = (String) chatDispatchQueue.elementAt(0);
+                        chatDispatchQueue.removeElementAt(0);
+                    }
 
-                    conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
-                    conn.setRequestMethod(HttpConnection.POST);
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
-
-                    byte[] data = jsonPayload.getBytes("UTF-8");
-                    conn.setRequestProperty("Content-Length", Integer.toString(data.length));
-
-                    os = conn.openOutputStream();
-                    os.write(data);
-                    os.flush();
-
-                    int responseCode = conn.getResponseCode();
-                    MatrixLogger.log("WEB-REST", "Chat POST Response Code: " + responseCode + " [" + channel + "]");
-                } catch (Exception e) {
-                    MatrixLogger.log("WEB-REST", "Chat POST Warning: " + e.getMessage());
-                } finally {
-                    try { if (os != null) os.close(); } catch (Exception ex) {}
-                    try { if (is != null) is.close(); } catch (Exception ex) {}
-                    try { if (conn != null) conn.close(); } catch (Exception ex) {}
+                    if (payload != null) {
+                        sendChatHttpRequest(postUrl, payload);
+                    }
                 }
             }
         });
-        webThread.start();
+        chatDispatchThread.start();
     }
+
+    private static void sendChatHttpRequest(String postUrl, String jsonPayload) {
+        HttpConnection conn = null;
+        OutputStream os = null;
+        InputStream is = null;
+        try {
+            conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
+            conn.setRequestMethod(HttpConnection.POST);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
+
+            byte[] data = jsonPayload.getBytes("UTF-8");
+            conn.setRequestProperty("Content-Length", Integer.toString(data.length));
+
+            os = conn.openOutputStream();
+            os.write(data);
+            os.flush();
+
+            int responseCode = conn.getResponseCode();
+            MatrixLogger.log("WEB-REST", "Chat POST Response Code: " + responseCode);
+        } catch (Exception e) {
+            MatrixLogger.log("WEB-REST", "Chat POST Warning: " + e.getMessage());
+        } finally {
+            try { if (os != null) os.close(); } catch (Exception ex) {}
+            try { if (is != null) is.close(); } catch (Exception ex) {}
+            try { if (conn != null) conn.close(); } catch (Exception ex) {}
+        }
+    }
+
 
     private static String quote(String input) {
         if (input == null) return "\"\"";
