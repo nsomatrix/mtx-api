@@ -297,7 +297,12 @@ public class MatrixWebClient {
             if (rs.getNumRecords() > 0) {
                 byte[] data = rs.getRecord(1);
                 if (data != null && data.length > 0) {
-                    return new String(data, "UTF-8");
+                    String saved = new String(data, "UTF-8");
+                    if (saved != null && saved.indexOf("vercel.app") != -1) {
+                        saved = "https://mtx-api.pages.dev/api/v1/players";
+                        saveEndpointToRMS(saved);
+                    }
+                    return saved;
                 }
             }
         } catch (Exception e) {
