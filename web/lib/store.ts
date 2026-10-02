@@ -50,7 +50,6 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-const AUTO_CLEAR_MS = 30 * 60 * 1000; // Auto clear after 30 minutes
 export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
 
 // Safe module-level closure cache
@@ -91,20 +90,6 @@ export async function getModClientStatus(maxAgeMs = 20000) {
   };
 }
 
-/**
- * Automatically prunes profiles older than 30 minutes (1,800,000 ms).
- */
-export function pruneExpiredPlayers(players: PlayerProfile[]): PlayerProfile[] {
-  const now = Date.now();
-  const valid = players.filter((p) => {
-    if (!p.lastUpdated) return false;
-    const time = new Date(p.lastUpdated).getTime();
-    return !isNaN(time) && now - time < AUTO_CLEAR_MS;
-  });
-
-  return valid;
-}
-
 export async function getAllPlayers(): Promise<PlayerProfile[]> {
   let loaded: PlayerProfile[] = matrixPlayersCache || [];
   const data = await getFirestoreDoc<{ players?: PlayerProfile[] }>('system/players');
@@ -112,7 +97,7 @@ export async function getAllPlayers(): Promise<PlayerProfile[]> {
     loaded = data.players;
     matrixPlayersCache = loaded;
   }
-  return pruneExpiredPlayers(loaded);
+  return loaded;
 }
 
 export async function saveAllPlayers(players: PlayerProfile[]) {
