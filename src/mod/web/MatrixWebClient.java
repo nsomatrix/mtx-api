@@ -304,7 +304,7 @@ public class MatrixWebClient {
         } finally {
             try { if (rs != null) rs.closeRecordStore(); } catch (Exception e) {}
         }
-        return "https://mtx-api.vercel.app/api/v1/players"; // Default Vercel production fallback
+        return "https://mtx-api.pages.dev/api/v1/players"; // Default Cloudflare Pages production fallback
     }
 
     private static void saveEndpointToRMS(String url) {
