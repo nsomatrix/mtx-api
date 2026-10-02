@@ -101,6 +101,7 @@ export function PlayerIOModule() {
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
 
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchStartTimeRef = useRef<number>(0);
 
   // Lock background page scrolling when a player details or equipment modal is open
   useEffect(() => {
@@ -144,13 +145,17 @@ export function PlayerIOModule() {
           const data = snap.data();
           const allPlayers: PlayerProfile[] = Array.isArray(data.players) ? data.players : [];
 
-          // If we have a pending inspect request, check if it has arrived in real-time
+          // If we have a pending inspect request, check if a fresh payload has arrived in real-time
           if (pendingTargetName) {
             const found = allPlayers.find(
               (p) => p.name.toLowerCase() === pendingTargetName.toLowerCase()
             );
 
-            if (found) {
+            // Verify freshness: only accept if payload was updated after or at request time
+            const lastUpdatedTime = found && found.lastUpdated ? new Date(found.lastUpdated).getTime() : 0;
+            const isFresh = found && (fetchStartTimeRef.current === 0 || lastUpdatedTime >= fetchStartTimeRef.current - 500);
+
+            if (found && isFresh) {
               if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
                 timeoutRef.current = null;
@@ -190,6 +195,7 @@ export function PlayerIOModule() {
               setPendingTargetName(null);
               setRefreshingTarget(null);
               setTargetName('');
+              fetchStartTimeRef.current = 0;
             }
           }
         }
@@ -291,6 +297,7 @@ export function PlayerIOModule() {
       return;
     }
 
+    fetchStartTimeRef.current = Date.now();
     setRefreshingTarget(cleanName);
     setPendingTargetName(cleanName);
     setFetchMsg({ type: 'loading', text: `Refreshing live stats for "${cleanName}"` });
@@ -310,6 +317,7 @@ export function PlayerIOModule() {
         setFetchMsg({ type: 'error', text: data.error || 'Failed to trigger refresh inspection.' });
         setRefreshingTarget(null);
         setPendingTargetName(null);
+        fetchStartTimeRef.current = 0;
         return;
       }
 
@@ -322,11 +330,13 @@ export function PlayerIOModule() {
         });
         setRefreshingTarget(null);
         setPendingTargetName(null);
+        fetchStartTimeRef.current = 0;
       }, 15000);
     } catch {
       setFetchMsg({ type: 'error', text: 'Network connection failed.' });
       setRefreshingTarget(null);
       setPendingTargetName(null);
+      fetchStartTimeRef.current = 0;
     }
   };
 
@@ -344,6 +354,7 @@ export function PlayerIOModule() {
       return;
     }
 
+    fetchStartTimeRef.current = Date.now();
     setFetching(true);
     setPendingTargetName(cleanName);
     setFetchMsg({ type: 'loading', text: `Requesting player info for "${cleanName}"` });
@@ -360,6 +371,7 @@ export function PlayerIOModule() {
         setFetchMsg({ type: 'error', text: data.error || 'Failed to send inspection request' });
         setFetching(false);
         setPendingTargetName(null);
+        fetchStartTimeRef.current = 0;
         return;
       }
 
@@ -374,11 +386,13 @@ export function PlayerIOModule() {
         });
         setFetching(false);
         setPendingTargetName(null);
+        fetchStartTimeRef.current = 0;
       }, 15000);
     } catch {
       setFetchMsg({ type: 'error', text: 'Unable to connect to service. Please try again.' });
       setFetching(false);
       setPendingTargetName(null);
+      fetchStartTimeRef.current = 0;
     }
   };
 
@@ -410,12 +424,22 @@ export function PlayerIOModule() {
   };
 
   const handleClearSession = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     fetch('/api/v1/inspect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: '__CLEAR__' }),
     }).catch(() => {});
     setSessionPlayers([]);
+    setSearchQuery('');
+    setFetching(false);
+    setPendingTargetName(null);
+    setRefreshingTarget(null);
+    setTargetName('');
+    fetchStartTimeRef.current = 0;
     setFetchMsg(null);
   };
 

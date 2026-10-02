@@ -58,6 +58,19 @@ export async function POST(request: Request) {
     }
 
     const targetName = body.name.trim();
+    if (targetName === '__CLEAR__') {
+      const { clearAllPlayers } = await import('@/lib/store');
+      await clearAllPlayers();
+      return NextResponse.json(
+        {
+          status: 200,
+          message: 'All player profiles and pending inspect queues successfully cleared',
+          target: null
+        },
+        { status: 200, headers: NO_CACHE_HEADERS }
+      );
+    }
+
     await pushInspectQueue(targetName);
 
     console.log(`[MTX-API-REST] Remote inspect fetch queued for target: "${targetName}"`);
