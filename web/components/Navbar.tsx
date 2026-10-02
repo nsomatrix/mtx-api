@@ -26,7 +26,7 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', href: '/', icon: Activity, disabled: false },
     { id: 'io', label: 'Player IO', href: '/io', icon: Search, disabled: false },
-    { id: 'chat', label: 'Live Chat', href: '#', icon: MessageSquare, disabled: true },
+    { id: 'chat', label: 'Connect', href: '#', icon: MessageSquare, disabled: true },
     { id: 'docs', label: 'API Docs', href: '/docs', icon: FileText, disabled: false },
   ];
 
@@ -58,7 +58,7 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
                     <div
                       key={item.id}
                       className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-500 cursor-not-allowed select-none opacity-80"
-                      title="Live Chat Telemetry Stream is temporarily disabled (In Progress)"
+                      title="Connect Telemetry Stream is temporarily disabled (In Progress)"
                     >
                       <Icon className="w-3.5 h-3.5 text-zinc-500" />
                       <span>{item.label}</span>

@@ -22,8 +22,8 @@ export function ModuleGrid({ targetCount }: ModuleGridProps) {
       disabled: false,
     },
     {
-      id: 'live-chat',
-      title: 'Live Chat Telemetry Stream',
+      id: 'connect',
+      title: 'Connect Telemetry Stream',
       version: 'IN PROGRESS',
       href: '',
       icon: MessageSquare,

@@ -24,7 +24,7 @@ export default function ChatPage() {
             <span className="text-zinc-400 text-xs font-mono">Stream Inactive</span>
           </div>
           <h1 className="text-3xl font-display font-extrabold text-white tracking-tight mt-2">
-            Live Chat Telemetry Stream
+            Connect Telemetry Stream
           </h1>
           <p className="text-sm text-zinc-400 max-w-2xl font-sans mt-1">
             Real-time chat log stream monitoring Public, Global, PM Chat, and Clan communications from active J2ME clients.
@@ -38,10 +38,10 @@ export default function ChatPage() {
           </div>
           <div className="space-y-2">
             <h2 className="text-lg font-display font-bold text-white">
-              Live Chat Stream In Progress
+              Connect Stream In Progress
             </h2>
             <p className="text-xs text-zinc-400 max-w-md mx-auto font-sans leading-relaxed">
-              The Live Chat Telemetry Stream is temporarily disabled. Telemetry ingestion and chat console access are paused.
+              The Connect Telemetry Stream is temporarily disabled. Telemetry ingestion and console access are paused.
             </p>
           </div>
           <div className="pt-2 flex items-center justify-center gap-3">
