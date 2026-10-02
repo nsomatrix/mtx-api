@@ -553,7 +553,7 @@ export function PlayerIOModule() {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-2 bg-zinc-950 rounded-2xl border border-zinc-800">
         <div className="flex items-center space-x-2 px-2 text-xs font-mono text-zinc-400">
           <Activity className="w-3.5 h-3.5 text-violet-400" />
-          <span>Active Inspection Cards ({sessionPlayers.length})</span>
+          <span>Active IO Cards ({sessionPlayers.length})</span>
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -563,7 +563,7 @@ export function PlayerIOModule() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search inspected cards..."
+              placeholder="Search IO cards..."
               className="w-full pl-8 pr-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-violet-500 focus:outline-none text-xs text-white font-mono placeholder:text-zinc-600"
             />
           </form>

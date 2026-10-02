@@ -24,10 +24,10 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
   const livePlayerCount = playerCount || statusPlayerCount;
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', href: '/', icon: Activity },
-    { id: 'io', label: 'Player IO', href: '/io', icon: Search },
-    { id: 'chat', label: 'Live Chat', href: '/chat', icon: MessageSquare },
-    { id: 'docs', label: 'API Docs', href: '/docs', icon: FileText },
+    { id: 'dashboard', label: 'Dashboard', href: '/', icon: Activity, disabled: false },
+    { id: 'io', label: 'Player IO', href: '/io', icon: Search, disabled: false },
+    { id: 'chat', label: 'Live Chat', href: '#', icon: MessageSquare, disabled: true },
+    { id: 'docs', label: 'API Docs', href: '/docs', icon: FileText, disabled: false },
   ];
 
   return (
@@ -52,6 +52,23 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
+
+                if (item.disabled) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-500 cursor-not-allowed select-none opacity-80"
+                      title="Live Chat Telemetry Stream is temporarily disabled (In Progress)"
+                    >
+                      <Icon className="w-3.5 h-3.5 text-zinc-500" />
+                      <span>{item.label}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                        In Progress
+                      </span>
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.id}
@@ -188,6 +205,24 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
+
+                if (item.disabled) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium text-zinc-500 cursor-not-allowed select-none opacity-80"
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <Icon className="w-4 h-4 text-zinc-500" />
+                        <span>{item.label}</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                        In Progress
+                      </span>
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.id}
