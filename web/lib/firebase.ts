@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
 
 const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
 const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN;
@@ -29,11 +29,24 @@ let db: Firestore | null = null;
 if (typeof window !== 'undefined' || isFirebaseConfigured()) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
+    if (typeof window !== 'undefined') {
+      try {
+        auth = getAuth(app);
+      } catch (e) {
+        console.warn('[Firebase] Auth initialization warning:', e);
+      }
+    }
+    try {
+      db = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+      });
+    } catch {
+      db = getFirestore(app);
+    }
   } catch (error) {
     console.warn('[Firebase] SDK initialization deferred or missing keys:', error);
   }
 }
 
 export { app, auth, db };
+
