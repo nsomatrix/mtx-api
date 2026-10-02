@@ -9,8 +9,8 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  const modStatus = getModClientStatus(20000); // 20s threshold
-  const players = getAllPlayers();
+  const modStatus = await getModClientStatus(20000); // 20s threshold
+  const players = await getAllPlayers();
 
   return NextResponse.json(
     {

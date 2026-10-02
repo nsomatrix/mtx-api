@@ -1,8 +1,5 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import { db } from './firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
@@ -55,8 +52,9 @@ export interface ChatMessage {
 }
 
 const AUTO_CLEAR_MS = 30 * 60 * 1000; // Auto clear after 30 minutes
+export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
 
-// In-memory global store to preserve state across warm Vercel Lambdas
+// Ephemeral memory cache for warm executions
 const globalStore = globalThis as unknown as {
   _matrixPlayersStore?: PlayerProfile[];
   _pendingInspectQueue?: string[];
@@ -86,67 +84,41 @@ if (!globalStore._lastModClientActivityTimestamp) {
  * Touch the mod client activity timestamp whenever an active mod client
  * polls inspect targets or posts telemetry/chat payloads.
  */
-export function touchModClientHeartbeat() {
-  globalStore._lastModClientActivityTimestamp = Date.now();
+export async function touchModClientHeartbeat() {
+  const now = Date.now();
+  globalStore._lastModClientActivityTimestamp = now;
+  if (db) {
+    try {
+      await setDoc(doc(db, 'system', 'heartbeat'), { lastActive: now, lastUpdated: new Date().toISOString() }, { merge: true });
+    } catch (e) {
+      console.warn('[STORE] Heartbeat sync warning:', e);
+    }
+  }
 }
 
 /**
  * Returns whether a mod client is currently active based on the last heartbeat.
  * Default max age: 20 seconds.
  */
-export function getModClientStatus(maxAgeMs = 20000) {
-  const lastActive = globalStore._lastModClientActivityTimestamp || 0;
-  const isOnline = lastActive > 0 && (Date.now() - lastActive < maxAgeMs);
+export async function getModClientStatus(maxAgeMs = 20000) {
+  let lastActive = globalStore._lastModClientActivityTimestamp || 0;
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'heartbeat'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (typeof data.lastActive === 'number' && data.lastActive > lastActive) {
+          lastActive = data.lastActive;
+          globalStore._lastModClientActivityTimestamp = lastActive;
+        }
+      }
+    } catch (e) {}
+  }
+  const isOnline = lastActive > 0 && Date.now() - lastActive < maxAgeMs;
   return {
     isOnline,
     lastSeenMsAgo: lastActive > 0 ? Date.now() - lastActive : null,
   };
-}
-
-function getDataFilePath(): string {
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    return path.join(os.tmpdir(), 'players.json');
-  }
-  return path.join(process.cwd(), 'data', 'players.json');
-}
-
-function getUserTargetsFilePath(): string {
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    return path.join(os.tmpdir(), 'user_targets.json');
-  }
-  return path.join(process.cwd(), 'data', 'user_targets.json');
-}
-
-function getChatFilePath(): string {
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    return path.join(os.tmpdir(), 'chat.json');
-  }
-  return path.join(process.cwd(), 'data', 'chat.json');
-}
-
-function getPendingChatFilePath(): string {
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    return path.join(os.tmpdir(), 'pending_chat.json');
-  }
-  return path.join(process.cwd(), 'data', 'pending_chat.json');
-}
-
-/**
- * OS-level atomic JSON file write helper (POSIX atomic rename).
- * Writes to a temporary file first, then performs an atomic renameSync.
- */
-function safeAtomicWriteJson(filePath: string, data: any) {
-  try {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).substring(2, 7)}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tempPath, filePath);
-  } catch (e) {
-    console.warn(`[STORE] Atomic file write warning for ${filePath}:`, e);
-  }
 }
 
 /**
@@ -160,94 +132,137 @@ export function pruneExpiredPlayers(players: PlayerProfile[]): PlayerProfile[] {
     return !isNaN(time) && now - time < AUTO_CLEAR_MS;
   });
 
-  if (valid.length !== players.length) {
-    saveAllPlayers(valid);
-  }
   return valid;
 }
 
-export function getAllPlayers(): PlayerProfile[] {
-  const filePath = getDataFilePath();
+export async function getAllPlayers(): Promise<PlayerProfile[]> {
   let loaded: PlayerProfile[] = globalStore._matrixPlayersStore || [];
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        loaded = parsed;
-        globalStore._matrixPlayersStore = parsed;
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'players'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.players)) {
+          loaded = data.players;
+          globalStore._matrixPlayersStore = loaded;
+        }
       }
+    } catch (e) {
+      console.warn('[STORE] Firestore players fetch error:', e);
     }
-  } catch (e) {
-    console.warn('[STORE] Error reading player file, using in-memory store:', e);
   }
   return pruneExpiredPlayers(loaded);
 }
 
-export function saveAllPlayers(players: PlayerProfile[]) {
+export async function saveAllPlayers(players: PlayerProfile[]) {
   globalStore._matrixPlayersStore = players;
-  safeAtomicWriteJson(getDataFilePath(), players);
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'system', 'players'),
+        {
+          players: JSON.parse(JSON.stringify(players)),
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('[STORE] Firestore players save error:', e);
+    }
+  }
 }
 
-export function clearAllPlayers() {
+export async function clearAllPlayers() {
   globalStore._pendingInspectQueue = [];
-  saveAllPlayers([]);
+  await saveAllPlayers([]);
+  if (db) {
+    try {
+      await setDoc(doc(db, 'system', 'inspect_queue'), { queue: [] }, { merge: true });
+    } catch (e) {}
+  }
 }
 
 // Queue functions for J2ME inspect triggers
-export function pushInspectQueue(targetName: string) {
+export async function pushInspectQueue(targetName: string) {
   if (!globalStore._pendingInspectQueue) {
     globalStore._pendingInspectQueue = [];
   }
   if (!globalStore._pendingInspectQueue.includes(targetName)) {
     globalStore._pendingInspectQueue.push(targetName);
   }
-}
-
-export function popInspectQueue(): string | null {
-  if (!globalStore._pendingInspectQueue || globalStore._pendingInspectQueue.length === 0) {
-    return null;
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'inspect_queue'));
+      let currentQueue: string[] = snap.exists() && Array.isArray(snap.data().queue) ? snap.data().queue : [];
+      if (!currentQueue.includes(targetName)) {
+        currentQueue.push(targetName);
+        await setDoc(doc(db, 'system', 'inspect_queue'), { queue: currentQueue }, { merge: true });
+      }
+    } catch (e) {
+      console.warn('[STORE] pushInspectQueue error:', e);
+    }
   }
-  return globalStore._pendingInspectQueue.shift() || null;
 }
 
-export function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { name: string }): PlayerProfile {
-  let players = getAllPlayers();
-  const index = players.findIndex(p => p.name.toLowerCase() === playerData.name.toLowerCase());
+export async function popInspectQueue(): Promise<string | null> {
+  let target: string | null = null;
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'inspect_queue'));
+      if (snap.exists()) {
+        const currentQueue: string[] = Array.isArray(snap.data().queue) ? snap.data().queue : [];
+        if (currentQueue.length > 0) {
+          target = currentQueue.shift() || null;
+          await setDoc(doc(db, 'system', 'inspect_queue'), { queue: currentQueue }, { merge: true });
+        }
+      }
+    } catch (e) {
+      console.warn('[STORE] popInspectQueue Firestore error:', e);
+    }
+  }
+  if (!target && globalStore._pendingInspectQueue && globalStore._pendingInspectQueue.length > 0) {
+    target = globalStore._pendingInspectQueue.shift() || null;
+  }
+  return target;
+}
+
+export async function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { name: string }): Promise<PlayerProfile> {
+  let players = await getAllPlayers();
+  const index = players.findIndex((p) => p.name.toLowerCase() === playerData.name.toLowerCase());
   const existing = index >= 0 ? players[index] : null;
 
   const isOffline = playerData.status === 'OFFLINE' || playerData.online === false || !!playerData.error;
 
   const updatedPlayer: PlayerProfile = {
     name: playerData.name,
-    level: playerData.level !== undefined ? playerData.level : (existing ? existing.level : 0),
+    level: playerData.level !== undefined ? playerData.level : existing ? existing.level : 0,
     class: playerData.class || (existing ? existing.class : 'Unknown'),
     school: playerData.school || (existing ? existing.school : 'Unknown'),
-    gender: playerData.gender !== undefined ? playerData.gender : (existing ? existing.gender : ''),
-    clan: playerData.clan !== undefined ? playerData.clan : (playerData.giaToc !== undefined ? playerData.giaToc : (existing ? existing.clan : '')),
-    giaToc: playerData.giaToc !== undefined ? playerData.giaToc : (playerData.clan !== undefined ? playerData.clan : (existing ? existing.giaToc : '')),
-    hp: playerData.hp !== undefined ? playerData.hp : (existing ? existing.hp : 0),
-    maxHp: playerData.maxHp !== undefined ? playerData.maxHp : (existing ? existing.maxHp : 0),
-    mp: playerData.mp !== undefined ? playerData.mp : (existing ? existing.mp : 0),
-    maxMp: playerData.maxMp !== undefined ? playerData.maxMp : (existing ? existing.maxMp : 0),
-    speed: playerData.speed !== undefined ? playerData.speed : (existing ? existing.speed : 0),
-    attackMin: playerData.attackMin !== undefined ? playerData.attackMin : (existing ? existing.attackMin : 0),
-    attackMax: playerData.attackMax !== undefined ? playerData.attackMax : (existing ? existing.attackMax : 0),
-    antiFire: playerData.antiFire !== undefined ? playerData.antiFire : (existing ? existing.antiFire : 0),
-    antiIce: playerData.antiIce !== undefined ? playerData.antiIce : (existing ? existing.antiIce : 0),
-    antiWind: playerData.antiWind !== undefined ? playerData.antiWind : (existing ? existing.antiWind : 0),
-    reducePain: playerData.reducePain !== undefined ? playerData.reducePain : (existing ? existing.reducePain : 0),
-    accurate: playerData.accurate !== undefined ? playerData.accurate : (existing ? existing.accurate : 0),
-    dodge: playerData.dodge !== undefined ? playerData.dodge : (existing ? existing.dodge : 0),
-    critical: playerData.critical !== undefined ? playerData.critical : (existing ? existing.critical : 0),
-    counterStrike: playerData.counterStrike !== undefined ? playerData.counterStrike : (existing ? existing.counterStrike : 0),
-    antiChakra: playerData.antiChakra !== undefined ? playerData.antiChakra : (existing ? existing.antiChakra : 0),
-    antiChakraBack: playerData.antiChakraBack !== undefined ? playerData.antiChakraBack : (existing ? existing.antiChakraBack : 0),
+    gender: playerData.gender !== undefined ? playerData.gender : existing ? existing.gender : '',
+    clan: playerData.clan !== undefined ? playerData.clan : playerData.giaToc !== undefined ? playerData.giaToc : existing ? existing.clan : '',
+    giaToc: playerData.giaToc !== undefined ? playerData.giaToc : playerData.clan !== undefined ? playerData.clan : existing ? existing.giaToc : '',
+    hp: playerData.hp !== undefined ? playerData.hp : existing ? existing.hp : 0,
+    maxHp: playerData.maxHp !== undefined ? playerData.maxHp : existing ? existing.maxHp : 0,
+    mp: playerData.mp !== undefined ? playerData.mp : existing ? existing.mp : 0,
+    maxMp: playerData.maxMp !== undefined ? playerData.maxMp : existing ? existing.maxMp : 0,
+    speed: playerData.speed !== undefined ? playerData.speed : existing ? existing.speed : 0,
+    attackMin: playerData.attackMin !== undefined ? playerData.attackMin : existing ? existing.attackMin : 0,
+    attackMax: playerData.attackMax !== undefined ? playerData.attackMax : existing ? existing.attackMax : 0,
+    antiFire: playerData.antiFire !== undefined ? playerData.antiFire : existing ? existing.antiFire : 0,
+    antiIce: playerData.antiIce !== undefined ? playerData.antiIce : existing ? existing.antiIce : 0,
+    antiWind: playerData.antiWind !== undefined ? playerData.antiWind : existing ? existing.antiWind : 0,
+    reducePain: playerData.reducePain !== undefined ? playerData.reducePain : existing ? existing.reducePain : 0,
+    accurate: playerData.accurate !== undefined ? playerData.accurate : existing ? existing.accurate : 0,
+    dodge: playerData.dodge !== undefined ? playerData.dodge : existing ? existing.dodge : 0,
+    critical: playerData.critical !== undefined ? playerData.critical : existing ? existing.critical : 0,
+    counterStrike: playerData.counterStrike !== undefined ? playerData.counterStrike : existing ? existing.counterStrike : 0,
+    antiChakra: playerData.antiChakra !== undefined ? playerData.antiChakra : existing ? existing.antiChakra : 0,
+    antiChakraBack: playerData.antiChakraBack !== undefined ? playerData.antiChakraBack : existing ? existing.antiChakraBack : 0,
     equipment: playerData.equipment || (existing ? existing.equipment : []),
     lastUpdated: new Date().toISOString(),
-    status: isOffline ? 'OFFLINE' : (playerData.status || 'ONLINE'),
-    online: isOffline ? false : (playerData.online ?? true),
-    error: playerData.error
+    status: isOffline ? 'OFFLINE' : playerData.status || 'ONLINE',
+    online: isOffline ? false : playerData.online ?? true,
+    error: playerData.error,
   };
 
   if (index >= 0) {
@@ -256,42 +271,40 @@ export function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { name: 
     players.unshift(updatedPlayer);
   }
 
-  saveAllPlayers(players);
+  await saveAllPlayers(players);
   return updatedPlayer;
 }
 
-export function deletePlayerByName(name: string): boolean {
-  let players = getAllPlayers();
+export async function deletePlayerByName(name: string): Promise<boolean> {
+  let players = await getAllPlayers();
   const initialCount = players.length;
-  players = players.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+  players = players.filter((p) => p.name.toLowerCase() !== name.toLowerCase());
   if (players.length !== initialCount) {
-    saveAllPlayers(players);
+    await saveAllPlayers(players);
     return true;
   }
   return false;
 }
 
-export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
-
-// Chat Store Functions (Atomic JSON File Persistence + Persistent Outbound Queue + Ephemeral Memory Cache)
-export function getAllChatMessages(
+export async function getAllChatMessages(
   channel?: string,
   sinceTimestamp?: string,
   limit: number = 1500
-): ChatMessage[] {
-  const filePath = getChatFilePath();
+): Promise<ChatMessage[]> {
   let loaded: ChatMessage[] = globalStore._matrixChatStore || [];
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        loaded = parsed;
-        globalStore._matrixChatStore = parsed;
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'telemetry_chat', 'live_stream'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.messages)) {
+          loaded = data.messages;
+          globalStore._matrixChatStore = loaded;
+        }
       }
+    } catch (e) {
+      console.warn('[STORE] Firestore chat fetch error:', e);
     }
-  } catch (e) {
-    console.warn('[STORE] Error reading chat file, using in-memory store:', e);
   }
 
   const now = Date.now();
@@ -300,7 +313,6 @@ export function getAllChatMessages(
     return !isNaN(t) && now - t < CHAT_RETENTION_MS;
   });
 
-  // Industry Standard Cursor / Delta filtering
   if (sinceTimestamp) {
     const sinceMs = new Date(sinceTimestamp).getTime();
     if (!isNaN(sinceMs)) {
@@ -322,21 +334,31 @@ export function getAllChatMessages(
   return results;
 }
 
-export function saveAllChatMessages(messages: ChatMessage[]) {
+export async function saveAllChatMessages(messages: ChatMessage[]) {
   globalStore._matrixChatStore = messages;
-  safeAtomicWriteJson(getChatFilePath(), messages);
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'telemetry_chat', 'live_stream'),
+        {
+          messages: JSON.parse(JSON.stringify(messages)),
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('[STORE] Firestore saveAllChatMessages warning:', e);
+    }
+  }
 }
 
-// In-process serialization mutex to prevent concurrent read-modify-write race conditions
-let chatWriteMutex: Promise<void> = Promise.resolve();
-
-export function saveChatMessage(data: {
+export async function saveChatMessage(data: {
   channel: string;
   sender: string;
   recipient?: string;
   message: string;
-}): ChatMessage {
-  let messages = getAllChatMessages();
+}): Promise<ChatMessage> {
+  let messages = await getAllChatMessages();
 
   const validChannel = (['MAP', 'WORLD', 'PRIVATE', 'CLAN'].includes(data.channel?.toUpperCase())
     ? data.channel.toUpperCase()
@@ -346,7 +368,6 @@ export function saveChatMessage(data: {
   const cleanSender = data.sender || 'UNKNOWN';
   const cleanRecipient = data.recipient ? data.recipient.trim() : undefined;
 
-  // Deduplication check: ignore if exact same channel, sender, recipient, and message received within 1500ms
   const nowMs = Date.now();
   const duplicate = messages.find((m) => {
     if (m.channel !== validChannel || m.sender !== cleanSender || m.message !== cleanMessage) {
@@ -374,152 +395,91 @@ export function saveChatMessage(data: {
 
   messages.unshift(msg);
 
-  // Maintain latest 2,000 live messages in memory & disk buffer
   if (messages.length > 2000) {
     messages = messages.slice(0, 2000);
   }
 
-  // Atomically update in-memory and queue disk write
-  chatWriteMutex = chatWriteMutex.then(() => {
-    saveAllChatMessages(messages);
-  }).catch((e) => {
-    console.warn('[STORE] Error in chatWriteMutex:', e);
-  });
-
-  // Industry-Standard Rolling Ring Buffer with 7-Day TTL in a Single Document:
-  // Zero Database Clogging: Exactly 1 document ('telemetry_chat/live_stream') exists in Firestore forever.
-  if (db) {
-    try {
-      const now = Date.now();
-      const freshBuffer = messages
-        .filter((m) => {
-          const t = new Date(m.timestamp).getTime();
-          return !isNaN(t) && now - t < CHAT_RETENTION_MS;
-        })
-        .slice(0, 1500);
-
-      const streamDocRef = doc(db, 'telemetry_chat', 'live_stream');
-      setDoc(streamDocRef, {
-        messages: freshBuffer,
-        lastUpdated: new Date().toISOString(),
-      }, { merge: true }).catch((err) => {
-        console.warn('[STORE] Firestore live_stream sync warning:', err);
-      });
-    } catch (e) {
-      // Ignore background firestore initialization glitches
-    }
-  }
-
+  await saveAllChatMessages(messages);
   return msg;
 }
 
-
-export function clearAllChatMessages() {
+export async function clearAllChatMessages() {
   globalStore._matrixChatStore = [];
   globalStore._pendingOutboundChatQueue = [];
-  saveAllChatMessages([]);
-  savePendingOutboundChat([]);
-
-  // Reset the single Firestore live_stream document atomically
+  await saveAllChatMessages([]);
   if (db) {
     try {
-      const streamDocRef = doc(db, 'telemetry_chat', 'live_stream');
-      setDoc(streamDocRef, {
-        messages: [],
-        lastUpdated: new Date().toISOString(),
-      }, { merge: true }).catch(() => {});
+      await setDoc(doc(db, 'system', 'pending_chat'), { queue: [] }, { merge: true });
     } catch (e) {}
   }
 }
 
-
-function loadPendingOutboundChat(): ChatMessage[] {
-  const filePath = getPendingChatFilePath();
-  let loaded: ChatMessage[] = globalStore._pendingOutboundChatQueue || [];
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        loaded = parsed;
-        globalStore._pendingOutboundChatQueue = parsed;
-      }
-    }
-  } catch (e) {
-    console.warn('[STORE] Error reading pending chat file:', e);
-  }
-  return loaded;
-}
-
-function savePendingOutboundChat(queue: ChatMessage[]) {
-  globalStore._pendingOutboundChatQueue = queue;
-  safeAtomicWriteJson(getPendingChatFilePath(), queue);
-}
-
-export function queueOutboundChatMessage(data: {
+export async function queueOutboundChatMessage(data: {
   channel: string;
   recipient?: string;
   message: string;
-}): ChatMessage {
-  const pending = loadPendingOutboundChat();
-
-  // First save to historical chat stream as WEB_CONSOLE
-  const msg = saveChatMessage({
+}): Promise<ChatMessage> {
+  const msg = await saveChatMessage({
     channel: data.channel,
     sender: 'WEB_CONSOLE',
     recipient: data.recipient,
     message: data.message,
   });
 
-  pending.push(msg);
-  savePendingOutboundChat(pending);
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'pending_chat'));
+      let pending: ChatMessage[] = snap.exists() && Array.isArray(snap.data().queue) ? snap.data().queue : [];
+      pending.push(msg);
+      await setDoc(doc(db, 'system', 'pending_chat'), { queue: pending }, { merge: true });
+    } catch (e) {
+      console.warn('[STORE] queueOutboundChatMessage error:', e);
+    }
+  } else {
+    if (!globalStore._pendingOutboundChatQueue) globalStore._pendingOutboundChatQueue = [];
+    globalStore._pendingOutboundChatQueue.push(msg);
+  }
   return msg;
 }
 
-export function popPendingOutboundChatMessages(): ChatMessage[] {
-  const pending = loadPendingOutboundChat();
-  if (pending.length === 0) {
-    return [];
+export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
+  let pending: ChatMessage[] = [];
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'system', 'pending_chat'));
+      if (snap.exists() && Array.isArray(snap.data().queue) && snap.data().queue.length > 0) {
+        pending = snap.data().queue;
+        await setDoc(doc(db, 'system', 'pending_chat'), { queue: [] }, { merge: true });
+      }
+    } catch (e) {
+      console.warn('[STORE] popPendingOutboundChatMessages error:', e);
+    }
   }
-  savePendingOutboundChat([]);
+  if (pending.length === 0 && globalStore._pendingOutboundChatQueue && globalStore._pendingOutboundChatQueue.length > 0) {
+    pending = [...globalStore._pendingOutboundChatQueue];
+    globalStore._pendingOutboundChatQueue = [];
+  }
   return pending;
 }
 
-
-// User-Isolated Saved Targets Persistence
-function loadUserTargetsMap(): Record<string, PlayerProfile[]> {
-  const filePath = getUserTargetsFilePath();
-  let map: Record<string, PlayerProfile[]> = globalStore._userSavedTargetsStore || {};
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        map = parsed;
-        globalStore._userSavedTargetsStore = map;
+export async function getUserSavedTargets(userId: string): Promise<PlayerProfile[]> {
+  if (!userId) return [];
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'users', userId));
+      if (snap.exists() && Array.isArray(snap.data().savedTargets)) {
+        return snap.data().savedTargets;
       }
+    } catch (e) {
+      console.warn('[STORE] getUserSavedTargets Firestore error:', e);
     }
-  } catch (e) {
-    console.warn('[STORE] Error loading user targets file:', e);
   }
-  return map;
+  return globalStore._userSavedTargetsStore?.[userId] || [];
 }
 
-function saveUserTargetsMap(map: Record<string, PlayerProfile[]>) {
-  globalStore._userSavedTargetsStore = map;
-  safeAtomicWriteJson(getUserTargetsFilePath(), map);
-}
-
-export function getUserSavedTargets(userId: string): PlayerProfile[] {
+export async function saveUserTargetCard(userId: string, player: PlayerProfile): Promise<PlayerProfile[]> {
   if (!userId) return [];
-  const map = loadUserTargetsMap();
-  return map[userId] || [];
-}
-
-export function saveUserTargetCard(userId: string, player: PlayerProfile): PlayerProfile[] {
-  if (!userId) return [];
-  const map = loadUserTargetsMap();
-  const current = map[userId] || [];
+  const current = await getUserSavedTargets(userId);
   const exists = current.some((p) => p.name.toLowerCase() === player.name.toLowerCase());
   let updated: PlayerProfile[];
   if (exists) {
@@ -527,17 +487,46 @@ export function saveUserTargetCard(userId: string, player: PlayerProfile): Playe
   } else {
     updated = [player, ...current];
   }
-  map[userId] = updated;
-  saveUserTargetsMap(map);
+  if (!globalStore._userSavedTargetsStore) globalStore._userSavedTargetsStore = {};
+  globalStore._userSavedTargetsStore[userId] = updated;
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'users', userId),
+        {
+          savedTargets: JSON.parse(JSON.stringify(updated)),
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('[STORE] saveUserTargetCard Firestore error:', e);
+    }
+  }
   return updated;
 }
 
-export function removeUserTargetCard(userId: string, playerName: string): PlayerProfile[] {
+export async function removeUserTargetCard(userId: string, playerName: string): Promise<PlayerProfile[]> {
   if (!userId) return [];
-  const map = loadUserTargetsMap();
-  const current = map[userId] || [];
+  const current = await getUserSavedTargets(userId);
   const updated = current.filter((p) => p.name.toLowerCase() !== playerName.toLowerCase());
-  map[userId] = updated;
-  saveUserTargetsMap(map);
+  if (!globalStore._userSavedTargetsStore) globalStore._userSavedTargetsStore = {};
+  globalStore._userSavedTargetsStore[userId] = updated;
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'users', userId),
+        {
+          savedTargets: JSON.parse(JSON.stringify(updated)),
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('[STORE] removeUserTargetCard Firestore error:', e);
+    }
+  }
   return updated;
 }

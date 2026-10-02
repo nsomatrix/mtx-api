@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const school = searchParams.get('school');
   const className = searchParams.get('class');
 
-  let players = getAllPlayers();
+  let players = await getAllPlayers();
 
   if (query) {
     players = players.filter(p => p.name.toLowerCase().includes(query));
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  touchModClientHeartbeat();
+  await touchModClientHeartbeat();
   const ip = getClientIp(request);
   // Rate limit: Max 120 requests per minute per IP (handles up to 4 live accounts @ 5s interval safely)
   const rate = checkRateLimit(ip, 120, 60000);
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const saved = saveOrUpdatePlayer({
+    const saved = await saveOrUpdatePlayer({
       name: body.name.trim(),
       level: Number(body.level) || 1,
       class: body.class || 'Unknown',
@@ -114,7 +114,7 @@ export async function DELETE(request: Request) {
   const name = searchParams.get('name');
 
   if (name) {
-    const deleted = deletePlayerByName(name);
+    const deleted = await deletePlayerByName(name);
     return NextResponse.json(
       {
         status: 200,
@@ -125,7 +125,7 @@ export async function DELETE(request: Request) {
     );
   }
 
-  clearAllPlayers();
+  await clearAllPlayers();
   return NextResponse.json(
     {
       status: 200,

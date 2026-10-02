@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const limitParam = searchParams.get('limit');
   const limit = limitParam ? parseInt(limitParam, 10) : 500;
 
-  const messages = getAllChatMessages(channel, since, limit);
+  const messages = await getAllChatMessages(channel, since, limit);
 
   return NextResponse.json(
     {
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  touchModClientHeartbeat();
+  await touchModClientHeartbeat();
   const ip = getClientIp(request);
   const rate = checkRateLimit(ip, 120, 60000);
   if (rate.isLimited) {
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const saved = saveChatMessage({
+    const saved = await saveChatMessage({
       channel: body.channel || 'MAP',
       sender: body.sender || 'CLIENT',
       recipient: body.recipient,
@@ -101,7 +101,7 @@ export async function DELETE(request: Request) {
   }
 
 
-  clearAllChatMessages();
+  await clearAllChatMessages();
   return NextResponse.json(
     {
       status: 200,

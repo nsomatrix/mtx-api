@@ -10,8 +10,8 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  touchModClientHeartbeat();
-  const target = popInspectQueue();
+  await touchModClientHeartbeat();
+  const target = await popInspectQueue();
   return NextResponse.json(
     {
       status: 200,
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     }
 
     const targetName = body.name.trim();
-    pushInspectQueue(targetName);
+    await pushInspectQueue(targetName);
 
     console.log(`[MTX-API-REST] Remote inspect fetch queued for target: "${targetName}"`);
 

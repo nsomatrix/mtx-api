@@ -8,7 +8,7 @@ export async function GET(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId parameter' }, { status: 400 });
     }
-    const targets = getUserSavedTargets(userId);
+    const targets = await getUserSavedTargets(userId);
     return NextResponse.json({ targets });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch targets' }, { status: 500 });
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     if (!userId || !player || !player.name) {
       return NextResponse.json({ error: 'Invalid payload. userId and player required.' }, { status: 400 });
     }
-    const updated = saveUserTargetCard(userId, player);
+    const updated = await saveUserTargetCard(userId, player);
     return NextResponse.json({ success: true, targets: updated });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to save target' }, { status: 500 });
@@ -37,7 +37,7 @@ export async function DELETE(request: Request) {
     if (!userId || !name) {
       return NextResponse.json({ error: 'Missing userId or name parameter' }, { status: 400 });
     }
-    const updated = removeUserTargetCard(userId, name);
+    const updated = await removeUserTargetCard(userId, name);
     return NextResponse.json({ success: true, targets: updated });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to remove target' }, { status: 500 });

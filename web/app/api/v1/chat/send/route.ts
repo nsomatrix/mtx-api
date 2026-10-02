@@ -11,7 +11,7 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  const pending = popPendingOutboundChatMessages();
+  const pending = await popPendingOutboundChatMessages();
   return NextResponse.json(
     {
       status: 200,
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const queued = queueOutboundChatMessage({
+    const queued = await queueOutboundChatMessage({
       channel,
       recipient: body.recipient?.trim(),
       message: body.message.trim(),
