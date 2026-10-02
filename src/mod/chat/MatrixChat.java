@@ -139,13 +139,19 @@ public class MatrixChat {
 
     /**
      * Non-destructively parses inbound network chat packets (PM, World, Clan, Map)
-     * and streams them to the web dashboard in real-time.
+     * using an isolated, cloned byte array stream so the game engine's internal stream
+     * is completely untouched and 100% stable.
      */
     public static void parseInboundChatPacket(byte command, ce packet) {
-        if (packet == null || packet.b() == null) return;
-        java.io.DataInputStream dis = packet.b();
+        if (packet == null) return;
+
+        byte[] rawBytes = packet.a();
+        if (rawBytes == null || rawBytes.length == 0) return;
+
+        java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(rawBytes);
+        java.io.DataInputStream dis = new java.io.DataInputStream(bais);
+
         try {
-            dis.mark(4096); // Mark current stream index
             String sender = null;
             String message = null;
             String channel = "MAP";
@@ -171,17 +177,20 @@ public class MatrixChat {
                 try {
                     int pId = dis.readInt();
                     bp p = (bp.d() != null && bp.d().p == pId) ? bp.d() : dg.e(pId);
-                    if (p != null && p.ab != null) {
-                        sender = p.ab;
+                    if (p != null && p.ab != null && p.ab.trim().length() > 0) {
+                        sender = p.ab.trim();
                     } else {
                         sender = "Player_" + pId;
                     }
                     message = dis.readUTF();
                 } catch (Exception ex) {
-                    dis.reset();
-                    dis.mark(4096);
-                    message = dis.readUTF();
-                    sender = "MAP_PLAYER";
+                    // Fallback format if pId is omitted
+                    try {
+                        bais = new java.io.ByteArrayInputStream(rawBytes);
+                        dis = new java.io.DataInputStream(bais);
+                        message = dis.readUTF();
+                        sender = "MAP_PLAYER";
+                    } catch (Exception innerEx) {}
                 }
             }
 
@@ -189,15 +198,14 @@ public class MatrixChat {
                 if (sender == null || sender.trim().length() == 0) {
                     sender = "GAME_SERVER";
                 }
-                MatrixLogger.logChat(channel, sender, null, message);
-                MatrixWebClient.postChatMessage(channel, sender, null, message);
+                MatrixLogger.logChat(channel, sender, null, message.trim());
+                MatrixWebClient.postChatMessage(channel, sender, null, message.trim());
             }
         } catch (Exception e) {
-            // Ignore non-chat or unparseable packets
+            // Ignore non-chat or unparseable packets safely
         } finally {
-            try {
-                dis.reset(); // Rewind DataInputStream so J2ME game handler reads it untouched
-            } catch (Exception e) {}
+            try { dis.close(); } catch (Exception ignored) {}
+            try { bais.close(); } catch (Exception ignored) {}
         }
     }
 }
