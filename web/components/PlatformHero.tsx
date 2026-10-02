@@ -56,7 +56,7 @@ export function PlatformHero({ activeModuleCount, totalTargetCount }: PlatformHe
               <Activity className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[10px] text-zinc-500 block font-sans uppercase tracking-wider">Profiles Recorded</span>
+              <span className="text-[10px] text-zinc-500 block font-sans uppercase tracking-wider">Profiles</span>
               <span className="text-white font-bold">{totalTargetCount} Targets</span>
             </div>
           </div>
