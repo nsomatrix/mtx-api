@@ -58,7 +58,6 @@ let matrixPlayersCache: PlayerProfile[] = [];
 let pendingInspectQueueCache: string[] = [];
 let matrixChatCache: ChatMessage[] = [];
 let pendingOutboundChatQueueCache: ChatMessage[] = [];
-let userSavedTargetsCache: Record<string, PlayerProfile[]> = {};
 let lastModClientActivityTimestamp = 0;
 
 /**
@@ -355,43 +354,3 @@ export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
   return pending;
 }
 
-export async function getUserSavedTargets(userId: string): Promise<PlayerProfile[]> {
-  if (!userId) return [];
-  const docData = await getFirestoreDoc<{ savedTargets?: PlayerProfile[] }>(`users/${userId}`);
-  if (docData && Array.isArray(docData.savedTargets)) {
-    return docData.savedTargets;
-  }
-  return userSavedTargetsCache[userId] || [];
-}
-
-export async function saveUserTargetCard(userId: string, player: PlayerProfile): Promise<PlayerProfile[]> {
-  if (!userId) return [];
-  const current = await getUserSavedTargets(userId);
-  const exists = current.some((p) => p.name.toLowerCase() === player.name.toLowerCase());
-  let updated: PlayerProfile[];
-  if (exists) {
-    updated = current.map((p) => (p.name.toLowerCase() === player.name.toLowerCase() ? player : p));
-  } else {
-    updated = [player, ...current];
-  }
-  userSavedTargetsCache[userId] = updated;
-
-  await setFirestoreDoc(`users/${userId}`, {
-    savedTargets: JSON.parse(JSON.stringify(updated)),
-    lastUpdated: new Date().toISOString(),
-  });
-  return updated;
-}
-
-export async function removeUserTargetCard(userId: string, playerName: string): Promise<PlayerProfile[]> {
-  if (!userId) return [];
-  const current = await getUserSavedTargets(userId);
-  const updated = current.filter((p) => p.name.toLowerCase() !== playerName.toLowerCase());
-  userSavedTargetsCache[userId] = updated;
-
-  await setFirestoreDoc(`users/${userId}`, {
-    savedTargets: JSON.parse(JSON.stringify(updated)),
-    lastUpdated: new Date().toISOString(),
-  });
-  return updated;
-}

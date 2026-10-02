@@ -3,18 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PlayerProfile } from '@/lib/store';
-import { useAuth } from '@/context/AuthContext';
 import { copyToClipboard } from '@/lib/copy';
-import {
-  getSavedTargets,
-  saveTarget,
-  removeTarget,
-  isTargetSaved,
-  getRemainingCooldownSeconds,
-  setRefreshCooldown,
-  fetchSavedTargetsFromCloud,
-  subscribeToRealtimeCloudTargets,
-} from '@/lib/userStore';
 import {
   Search,
   RefreshCw,
@@ -24,18 +13,43 @@ import {
   Copy,
   Check,
   ChevronRight,
-  Clock,
   Shield,
   Radio,
   Loader2,
   Download,
   Sparkles,
   AlertTriangle,
-  Bookmark,
-  BookmarkCheck,
-  Star,
-  Users,
 } from 'lucide-react';
+
+const COOLDOWN_KEY_PREFIX = 'mtx_refresh_cooldowns';
+const REFRESH_COOLDOWN_MS = 60 * 1000;
+
+function getCooldownSeconds(playerName: string): number {
+  if (typeof window === 'undefined' || !playerName) return 0;
+  try {
+    const raw = localStorage.getItem(COOLDOWN_KEY_PREFIX);
+    if (!raw) return 0;
+    const cooldowns: Record<string, number> = JSON.parse(raw);
+    const expireTime = cooldowns[playerName.toLowerCase()];
+    if (!expireTime) return 0;
+    const diffMs = expireTime - Date.now();
+    return diffMs > 0 ? Math.ceil(diffMs / 1000) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setCooldownSeconds(playerName: string): void {
+  if (typeof window === 'undefined' || !playerName) return;
+  try {
+    const raw = localStorage.getItem(COOLDOWN_KEY_PREFIX);
+    const cooldowns: Record<string, number> = raw ? JSON.parse(raw) : {};
+    cooldowns[playerName.toLowerCase()] = Date.now() + REFRESH_COOLDOWN_MS;
+    localStorage.setItem(COOLDOWN_KEY_PREFIX, JSON.stringify(cooldowns));
+  } catch (e) {
+    console.warn('[Inspector] Error setting cooldown:', e);
+  }
+}
 
 function AnimatedNumber({ value, duration = 750, prefix = '', suffix = '' }: { value: number; duration?: number; prefix?: string; suffix?: string }) {
   const [displayValue, setDisplayValue] = useState(0);
@@ -65,8 +79,6 @@ function AnimatedNumber({ value, duration = 750, prefix = '', suffix = '' }: { v
 }
 
 export function PlayerInspectorModule() {
-  const { user } = useAuth();
-  const userId = user?.uid || user?.email || 'anonymous';
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -74,9 +86,6 @@ export function PlayerInspectorModule() {
   }, []);
 
   const [sessionPlayers, setSessionPlayers] = useState<PlayerProfile[]>([]);
-  const [savedPlayers, setSavedPlayers] = useState<PlayerProfile[]>([]);
-  const [activeTab, setActiveTab] = useState<'session' | 'saved'>('session');
-
   const [targetName, setTargetName] = useState('');
   const [fetching, setFetching] = useState(false);
   const [refreshingTarget, setRefreshingTarget] = useState<string | null>(null);
@@ -86,11 +95,9 @@ export function PlayerInspectorModule() {
   const [equipmentPlayer, setEquipmentPlayer] = useState<PlayerProfile | null>(null);
   const [equipmentTab, setEquipmentTab] = useState<1 | 2>(1);
   const [copied, setCopied] = useState(false);
-
-  // Cooldown timer state mapping player name -> remaining seconds
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
 
-  // Lock background page scrolling when a player details or equipment modal card is open
+  // Lock background page scrolling when a player details or equipment modal is open
   useEffect(() => {
     if (selectedPlayer || equipmentPlayer) {
       document.body.style.overflow = 'hidden';
@@ -121,53 +128,14 @@ export function PlayerInspectorModule() {
     33: 'Artifact',
   };
 
-  // Real-time multi-device cross-platform cloud synchronization
-  useEffect(() => {
-    if (!userId) return;
-
-    // 1. Instant local cache load (0ms UI latency)
-    setSavedPlayers(getSavedTargets(userId));
-
-    // 2. Fetch initial cloud targets from Server API & Firestore
-    fetchSavedTargetsFromCloud(userId).then((cloudTargets) => {
-      if (cloudTargets) setSavedPlayers(cloudTargets);
-    });
-
-    // 3. Real-time Firestore WebSocket listener across devices
-    const unsubscribeSnapshot = subscribeToRealtimeCloudTargets(userId, (cloudTargets) => {
-      if (cloudTargets) setSavedPlayers(cloudTargets);
-    });
-
-    // 4. Server API polling sync fallback for non-websocket environments
-    const syncInterval = setInterval(() => {
-      fetchSavedTargetsFromCloud(userId).then((cloudTargets) => {
-        if (cloudTargets) setSavedPlayers(cloudTargets);
-      });
-    }, 4000);
-
-    return () => {
-      unsubscribeSnapshot();
-      clearInterval(syncInterval);
-    };
-  }, [userId]);
-
-  // Live timer interval to tick down cooldowns every 1 second
+  // Cooldown interval timer
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!userId) return;
       const updated: Record<string, number> = {};
       let changed = false;
 
-      savedPlayers.forEach((p) => {
-        const secs = getRemainingCooldownSeconds(userId, p.name);
-        if (secs !== (cooldowns[p.name.toLowerCase()] || 0)) {
-          updated[p.name.toLowerCase()] = secs;
-          changed = true;
-        }
-      });
-
       sessionPlayers.forEach((p) => {
-        const secs = getRemainingCooldownSeconds(userId, p.name);
+        const secs = getCooldownSeconds(p.name);
         if (secs !== (cooldowns[p.name.toLowerCase()] || 0)) {
           updated[p.name.toLowerCase()] = secs;
           changed = true;
@@ -180,7 +148,7 @@ export function PlayerInspectorModule() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [userId, savedPlayers, sessionPlayers, cooldowns]);
+  }, [sessionPlayers, cooldowns]);
 
   const getUpgradeStyle = (upgrade: number) => {
     if (upgrade <= 0) {
@@ -229,24 +197,7 @@ export function PlayerInspectorModule() {
     }
   };
 
-  const MAX_LIVE_CARDS = 4;
-
-  const handleToggleBookmark = (player: PlayerProfile) => {
-    if (!userId) return;
-    const isSaved = isTargetSaved(userId, player.name);
-    if (isSaved) {
-      if (refreshingTarget?.toLowerCase() === player.name.toLowerCase()) {
-        setRefreshingTarget(null);
-      }
-      const updated = removeTarget(userId, player.name);
-      setSavedPlayers(updated);
-      setFetchMsg({ type: 'info', text: `Removed "${player.name}" from your saved targets.` });
-    } else {
-      const updated = saveTarget(userId, player);
-      setSavedPlayers(updated);
-      setFetchMsg({ type: 'success', text: `Saved "${player.name}" to your account targets!` });
-    }
-  };
+  const MAX_LIVE_CARDS = 8;
 
   const handleDismissPlayer = async (playerName: string) => {
     if (refreshingTarget?.toLowerCase() === playerName.toLowerCase()) {
@@ -257,22 +208,20 @@ export function PlayerInspectorModule() {
     if (equipmentPlayer?.name.toLowerCase() === playerName.toLowerCase()) setEquipmentPlayer(null);
     try {
       await fetch(`/api/v1/players?name=${encodeURIComponent(playerName)}`, { method: 'DELETE' });
-    } catch (err) {
+    } catch {
       // Ignore network errors
     }
   };
 
-  // Trigger on-demand inspect for saved card with 1-minute cooldown enforcement
   const handleRefreshTarget = async (player: PlayerProfile) => {
     const cleanName = player.name.trim();
     if (!cleanName) return;
 
-    // Check remaining cooldown
-    const remainingSecs = getRemainingCooldownSeconds(userId, cleanName);
+    const remainingSecs = getCooldownSeconds(cleanName);
     if (remainingSecs > 0) {
       setFetchMsg({
         type: 'error',
-        text: `Refresh cooldown active for "${cleanName}". Please wait ${remainingSecs}s to prevent API abuse.`,
+        text: `Refresh cooldown active for "${cleanName}". Please wait ${remainingSecs}s.`,
       });
       return;
     }
@@ -280,8 +229,7 @@ export function PlayerInspectorModule() {
     setRefreshingTarget(cleanName);
     setFetchMsg({ type: 'loading', text: `Refreshing live stats for "${cleanName}"` });
 
-    // Set 60-second cooldown immediately
-    setRefreshCooldown(userId, cleanName);
+    setCooldownSeconds(cleanName);
     setCooldowns((prev) => ({ ...prev, [cleanName.toLowerCase()]: 60 }));
 
     try {
@@ -298,7 +246,6 @@ export function PlayerInspectorModule() {
         return;
       }
 
-      // Poll REST endpoint for updated stats
       const startTime = Date.now();
       const pollTarget = async () => {
         try {
@@ -310,11 +257,6 @@ export function PlayerInspectorModule() {
             );
 
             if (found) {
-              // Update saved targets list
-              const updatedSaved = saveTarget(userId, found);
-              setSavedPlayers(updatedSaved);
-
-              // Update session list if present
               setSessionPlayers((prev) => {
                 const idx = prev.findIndex((p) => p.name.toLowerCase() === found.name.toLowerCase());
                 if (idx >= 0) {
@@ -322,7 +264,7 @@ export function PlayerInspectorModule() {
                   copy[idx] = found;
                   return copy;
                 }
-                return prev;
+                return [found, ...prev];
               });
 
               setFetchMsg({ type: 'success', text: `Updated live profile for "${found.name}"!` });
@@ -349,7 +291,7 @@ export function PlayerInspectorModule() {
         const done = await pollTarget();
         if (done) clearInterval(pollTimer);
       }, 1500);
-    } catch (err) {
+    } catch {
       setFetchMsg({ type: 'error', text: 'Network connection failed.' });
       setRefreshingTarget(null);
     }
@@ -364,7 +306,7 @@ export function PlayerInspectorModule() {
     if (!existsAlready && sessionPlayers.length >= MAX_LIVE_CARDS) {
       setFetchMsg({
         type: 'error',
-        text: `Session limit reached (${MAX_LIVE_CARDS} max). Clear session to inspect additional targets.`,
+        text: `Session limit reached (${MAX_LIVE_CARDS} max). Clear cards to inspect additional targets.`,
       });
       return;
     }
@@ -455,7 +397,7 @@ export function PlayerInspectorModule() {
       if (!done) {
         pollIntervalRef.current = setInterval(pollTarget, 1500);
       }
-    } catch (err) {
+    } catch {
       setFetchMsg({ type: 'error', text: 'Unable to connect to service. Please try again.' });
       setFetching(false);
     }
@@ -519,9 +461,7 @@ export function PlayerInspectorModule() {
     return 'Male';
   };
 
-  const displayedList = activeTab === 'session' ? sessionPlayers : savedPlayers;
-
-  const filteredPlayers = displayedList.filter((p) =>
+  const filteredPlayers = sessionPlayers.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     cleanSchoolName(p.school).toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.class.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -544,18 +484,12 @@ export function PlayerInspectorModule() {
             {sessionPlayers.length > 0 && (
               <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/20 text-violet-300 border border-violet-500/30">
                 <Radio className="w-3 h-3 text-violet-400" />
-                <span>SESSION ({sessionPlayers.length}/{MAX_LIVE_CARDS})</span>
-              </span>
-            )}
-            {savedPlayers.length > 0 && (
-              <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                <Bookmark className="w-3 h-3 text-amber-400" />
-                <span>SAVED TARGETS ({savedPlayers.length})</span>
+                <span>INSPECTED ({sessionPlayers.length}/{MAX_LIVE_CARDS})</span>
               </span>
             )}
           </div>
           <p className="text-xs text-zinc-400 font-sans">
-            Enter any player name to trigger on-demand character inspection or view your saved target vault.
+            Enter any player name to trigger on-demand character inspection and view real-time profile stats.
           </p>
         </div>
 
@@ -612,37 +546,13 @@ export function PlayerInspectorModule() {
         </div>
       )}
 
-      {/* Primary Tab Switcher: Session Cards vs Saved Targets */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-1.5 bg-zinc-950 rounded-2xl border border-zinc-800">
-        <div className="flex items-center gap-1 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab('session')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border-0 outline-none select-none ${
-              activeTab === 'session'
-                ? 'bg-zinc-800 text-violet-400 shadow-sm'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Radio className="w-3.5 h-3.5" />
-            <span>Active Session ({sessionPlayers.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('saved')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border-0 outline-none select-none ${
-              activeTab === 'saved'
-                ? 'bg-zinc-800 text-amber-400 shadow-sm'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5" />
-            <span>My Saved Targets ({savedPlayers.length})</span>
-          </button>
+      {/* Search & Actions Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-2 bg-zinc-950 rounded-2xl border border-zinc-800">
+        <div className="flex items-center space-x-2 px-2 text-xs font-mono text-zinc-400">
+          <Activity className="w-3.5 h-3.5 text-violet-400" />
+          <span>Active Inspection Cards ({sessionPlayers.length})</span>
         </div>
 
-        {/* Search Bar & Action Controls */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <form onSubmit={handleSearchSubmit} className="relative flex-1 sm:w-[260px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
@@ -650,20 +560,20 @@ export function PlayerInspectorModule() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search target cards"
+              placeholder="Search inspected cards..."
               className="w-full pl-8 pr-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-violet-500 focus:outline-none text-xs text-white font-mono placeholder:text-zinc-600"
             />
           </form>
 
-          {activeTab === 'session' && sessionPlayers.length > 0 && (
+          {sessionPlayers.length > 0 && (
             <button
               type="button"
               onClick={handleClearSession}
               className="flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-white transition-colors border-0 outline-none shrink-0"
-              title="Clear active session cards"
+              title="Clear all cards"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Clear</span>
+              <span className="hidden sm:inline">Clear All</span>
             </button>
           )}
         </div>
@@ -673,20 +583,14 @@ export function PlayerInspectorModule() {
       {filteredPlayers.length === 0 ? (
         <div className="py-16 text-center border border-dashed border-zinc-800/80 rounded-2xl p-8 bg-zinc-950/40 text-xs text-zinc-500 font-mono space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-400">
-            {activeTab === 'saved' ? (
-              <Bookmark className="w-6 h-6 text-amber-400" />
-            ) : (
-              <Shield className="w-6 h-6 text-violet-400" />
-            )}
+            <Shield className="w-6 h-6 text-violet-400" />
           </div>
           <div className="space-y-1">
             <p className="text-sm font-semibold text-zinc-300 font-sans">
-              {activeTab === 'saved' ? 'No Saved Targets in Vault' : 'No Active Inspection Targets'}
+              No Active Inspection Targets
             </p>
             <p className="text-zinc-500 max-w-sm mx-auto font-sans">
-              {activeTab === 'saved'
-                ? 'Save any player card by clicking the star bookmark icon to store them permanently under your account.'
-                : 'Enter a Ninja character name above and click Fetch to inspect player profile.'}
+              Enter a Ninja character name above and click Fetch to inspect player profile in real-time.
             </p>
           </div>
         </div>
@@ -696,7 +600,6 @@ export function PlayerInspectorModule() {
             const hpPercent = p.maxHp > 0 ? Math.min(100, Math.round((p.hp / p.maxHp) * 100)) : 0;
             const mpPercent = p.maxMp > 0 ? Math.min(100, Math.round((p.mp / p.maxMp) * 100)) : 0;
             const schoolName = cleanSchoolName(p.school);
-            const isSaved = isTargetSaved(userId, p.name);
             const remainingSecs = cooldowns[p.name.toLowerCase()] || 0;
             const isRefreshingThis = refreshingTarget?.toLowerCase() === p.name.toLowerCase();
 
@@ -707,7 +610,7 @@ export function PlayerInspectorModule() {
                 className="group p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 hover:border-violet-500/50 hover:bg-zinc-900 transition-all cursor-pointer space-y-4 flex flex-col justify-between relative overflow-hidden"
               >
                 <div>
-                  {/* Top Header: Name, Level & Bookmark / Dismiss buttons */}
+                  {/* Top Header: Name, Level & Action buttons */}
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center space-x-2">
@@ -744,20 +647,6 @@ export function PlayerInspectorModule() {
                     </div>
 
                     <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
-                      {/* Bookmark Toggle Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleToggleBookmark(p)}
-                        className={`p-1.5 rounded-lg transition-colors border-0 outline-none ${
-                          isSaved
-                            ? 'text-amber-400 hover:bg-amber-500/10'
-                            : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
-                        }`}
-                        title={isSaved ? 'Remove from saved targets' : 'Bookmark to account'}
-                      >
-                        {isSaved ? <Star className="w-4 h-4 fill-amber-400 text-amber-400" /> : <Star className="w-4 h-4" />}
-                      </button>
-
                       {/* Refresh Button for Card with 1-min Cooldown */}
                       <button
                         type="button"
@@ -775,16 +664,14 @@ export function PlayerInspectorModule() {
                       </button>
 
                       {/* Dismiss Button */}
-                      {activeTab === 'session' && (
-                        <button
-                          type="button"
-                          onClick={() => handleDismissPlayer(p.name)}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors border-0 outline-none"
-                          title="Dismiss player profile"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDismissPlayer(p.name)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors border-0 outline-none"
+                        title="Dismiss player profile"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
@@ -867,7 +754,7 @@ export function PlayerInspectorModule() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl font-sans">
             {/* Modal Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
               <div className="flex items-center space-x-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 font-mono font-bold text-sm shrink-0">
                   {selectedPlayer.level}
@@ -899,22 +786,9 @@ export function PlayerInspectorModule() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center justify-between sm:justify-end space-x-2 w-full sm:w-auto">
-                <button
-                  onClick={() => handleToggleBookmark(selectedPlayer)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center space-x-1.5 border-0 outline-none ${
-                    isTargetSaved(userId, selectedPlayer.name)
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-amber-400'
-                  }`}
-                >
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <span>{isTargetSaved(userId, selectedPlayer.name) ? 'Saved' : 'Save'}</span>
-                </button>
-                <button onClick={() => setSelectedPlayer(null)} className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0 border-0 outline-none">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <button onClick={() => setSelectedPlayer(null)} className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0 border-0 outline-none">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             {/* Health & Mana Points */}
