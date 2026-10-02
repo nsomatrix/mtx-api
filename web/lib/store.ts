@@ -1,5 +1,4 @@
-import { db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestoreDoc, setFirestoreDoc } from './firestoreRest';
 
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
@@ -54,7 +53,7 @@ export interface ChatMessage {
 const AUTO_CLEAR_MS = 30 * 60 * 1000; // Auto clear after 30 minutes
 export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
 
-// Safe module-level closure cache (Never mutates globalThis to avoid Cloudflare Workers runtime freeze)
+// Safe module-level closure cache
 let matrixPlayersCache: PlayerProfile[] = [];
 let pendingInspectQueueCache: string[] = [];
 let matrixChatCache: ChatMessage[] = [];
@@ -69,13 +68,10 @@ let lastModClientActivityTimestamp = 0;
 export async function touchModClientHeartbeat() {
   const now = Date.now();
   lastModClientActivityTimestamp = now;
-  if (db) {
-    try {
-      await setDoc(doc(db, 'system', 'heartbeat'), { lastActive: now, lastUpdated: new Date().toISOString() }, { merge: true });
-    } catch (e) {
-      console.warn('[STORE] Heartbeat sync warning:', e);
-    }
-  }
+  await setFirestoreDoc('system/heartbeat', {
+    lastActive: now,
+    lastUpdated: new Date().toISOString(),
+  });
 }
 
 /**
@@ -84,17 +80,10 @@ export async function touchModClientHeartbeat() {
  */
 export async function getModClientStatus(maxAgeMs = 20000) {
   let lastActive = lastModClientActivityTimestamp || 0;
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'heartbeat'));
-      if (snap.exists()) {
-        const data = snap.data();
-        if (typeof data.lastActive === 'number' && data.lastActive > lastActive) {
-          lastActive = data.lastActive;
-          lastModClientActivityTimestamp = lastActive;
-        }
-      }
-    } catch (e) {}
+  const data = await getFirestoreDoc<{ lastActive?: number }>('system/heartbeat');
+  if (data && typeof data.lastActive === 'number' && data.lastActive > lastActive) {
+    lastActive = data.lastActive;
+    lastModClientActivityTimestamp = lastActive;
   }
   const isOnline = lastActive > 0 && Date.now() - lastActive < maxAgeMs;
   return {
@@ -119,49 +108,26 @@ export function pruneExpiredPlayers(players: PlayerProfile[]): PlayerProfile[] {
 
 export async function getAllPlayers(): Promise<PlayerProfile[]> {
   let loaded: PlayerProfile[] = matrixPlayersCache || [];
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'players'));
-      if (snap.exists()) {
-        const data = snap.data();
-        if (Array.isArray(data.players)) {
-          loaded = data.players;
-          matrixPlayersCache = loaded;
-        }
-      }
-    } catch (e) {
-      console.warn('[STORE] Firestore players fetch error:', e);
-    }
+  const data = await getFirestoreDoc<{ players?: PlayerProfile[] }>('system/players');
+  if (data && Array.isArray(data.players)) {
+    loaded = data.players;
+    matrixPlayersCache = loaded;
   }
   return pruneExpiredPlayers(loaded);
 }
 
 export async function saveAllPlayers(players: PlayerProfile[]) {
   matrixPlayersCache = players;
-  if (db) {
-    try {
-      await setDoc(
-        doc(db, 'system', 'players'),
-        {
-          players: JSON.parse(JSON.stringify(players)),
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (e) {
-      console.warn('[STORE] Firestore players save error:', e);
-    }
-  }
+  await setFirestoreDoc('system/players', {
+    players: JSON.parse(JSON.stringify(players)),
+    lastUpdated: new Date().toISOString(),
+  });
 }
 
 export async function clearAllPlayers() {
   pendingInspectQueueCache = [];
   await saveAllPlayers([]);
-  if (db) {
-    try {
-      await setDoc(doc(db, 'system', 'inspect_queue'), { queue: [] }, { merge: true });
-    } catch (e) {}
-  }
+  await setFirestoreDoc('system/inspect_queue', { queue: [] });
 }
 
 // Queue functions for J2ME inspect triggers
@@ -169,35 +135,21 @@ export async function pushInspectQueue(targetName: string) {
   if (!pendingInspectQueueCache.includes(targetName)) {
     pendingInspectQueueCache.push(targetName);
   }
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'inspect_queue'));
-      let currentQueue: string[] = snap.exists() && Array.isArray(snap.data().queue) ? snap.data().queue : [];
-      if (!currentQueue.includes(targetName)) {
-        currentQueue.push(targetName);
-        await setDoc(doc(db, 'system', 'inspect_queue'), { queue: currentQueue }, { merge: true });
-      }
-    } catch (e) {
-      console.warn('[STORE] pushInspectQueue error:', e);
-    }
+  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
+  let currentQueue: string[] = data && Array.isArray(data.queue) ? data.queue : [];
+  if (!currentQueue.includes(targetName)) {
+    currentQueue.push(targetName);
+    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
   }
 }
 
 export async function popInspectQueue(): Promise<string | null> {
   let target: string | null = null;
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'inspect_queue'));
-      if (snap.exists()) {
-        const currentQueue: string[] = Array.isArray(snap.data().queue) ? snap.data().queue : [];
-        if (currentQueue.length > 0) {
-          target = currentQueue.shift() || null;
-          await setDoc(doc(db, 'system', 'inspect_queue'), { queue: currentQueue }, { merge: true });
-        }
-      }
-    } catch (e) {
-      console.warn('[STORE] popInspectQueue Firestore error:', e);
-    }
+  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
+  if (data && Array.isArray(data.queue) && data.queue.length > 0) {
+    const currentQueue = [...data.queue];
+    target = currentQueue.shift() || null;
+    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
   }
   if (!target && pendingInspectQueueCache.length > 0) {
     target = pendingInspectQueueCache.shift() || null;
@@ -271,19 +223,10 @@ export async function getAllChatMessages(
   limit: number = 1500
 ): Promise<ChatMessage[]> {
   let loaded: ChatMessage[] = matrixChatCache || [];
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'telemetry_chat', 'live_stream'));
-      if (snap.exists()) {
-        const data = snap.data();
-        if (Array.isArray(data.messages)) {
-          loaded = data.messages;
-          matrixChatCache = loaded;
-        }
-      }
-    } catch (e) {
-      console.warn('[STORE] Firestore chat fetch error:', e);
-    }
+  const data = await getFirestoreDoc<{ messages?: ChatMessage[] }>('telemetry_chat/live_stream');
+  if (data && Array.isArray(data.messages)) {
+    loaded = data.messages;
+    matrixChatCache = loaded;
   }
 
   const now = Date.now();
@@ -315,20 +258,10 @@ export async function getAllChatMessages(
 
 export async function saveAllChatMessages(messages: ChatMessage[]) {
   matrixChatCache = messages;
-  if (db) {
-    try {
-      await setDoc(
-        doc(db, 'telemetry_chat', 'live_stream'),
-        {
-          messages: JSON.parse(JSON.stringify(messages)),
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (e) {
-      console.warn('[STORE] Firestore saveAllChatMessages warning:', e);
-    }
-  }
+  await setFirestoreDoc('telemetry_chat/live_stream', {
+    messages: JSON.parse(JSON.stringify(messages)),
+    lastUpdated: new Date().toISOString(),
+  });
 }
 
 export async function saveChatMessage(data: {
@@ -386,11 +319,7 @@ export async function clearAllChatMessages() {
   matrixChatCache = [];
   pendingOutboundChatQueueCache = [];
   await saveAllChatMessages([]);
-  if (db) {
-    try {
-      await setDoc(doc(db, 'system', 'pending_chat'), { queue: [] }, { merge: true });
-    } catch (e) {}
-  }
+  await setFirestoreDoc('system/pending_chat', { queue: [] });
 }
 
 export async function queueOutboundChatMessage(data: {
@@ -405,33 +334,19 @@ export async function queueOutboundChatMessage(data: {
     message: data.message,
   });
 
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'pending_chat'));
-      let pending: ChatMessage[] = snap.exists() && Array.isArray(snap.data().queue) ? snap.data().queue : [];
-      pending.push(msg);
-      await setDoc(doc(db, 'system', 'pending_chat'), { queue: pending }, { merge: true });
-    } catch (e) {
-      console.warn('[STORE] queueOutboundChatMessage error:', e);
-    }
-  } else {
-    pendingOutboundChatQueueCache.push(msg);
-  }
+  const docData = await getFirestoreDoc<{ queue?: ChatMessage[] }>('system/pending_chat');
+  let pending: ChatMessage[] = docData && Array.isArray(docData.queue) ? docData.queue : [];
+  pending.push(msg);
+  await setFirestoreDoc('system/pending_chat', { queue: pending });
   return msg;
 }
 
 export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
   let pending: ChatMessage[] = [];
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'system', 'pending_chat'));
-      if (snap.exists() && Array.isArray(snap.data().queue) && snap.data().queue.length > 0) {
-        pending = snap.data().queue;
-        await setDoc(doc(db, 'system', 'pending_chat'), { queue: [] }, { merge: true });
-      }
-    } catch (e) {
-      console.warn('[STORE] popPendingOutboundChatMessages error:', e);
-    }
+  const docData = await getFirestoreDoc<{ queue?: ChatMessage[] }>('system/pending_chat');
+  if (docData && Array.isArray(docData.queue) && docData.queue.length > 0) {
+    pending = docData.queue;
+    await setFirestoreDoc('system/pending_chat', { queue: [] });
   }
   if (pending.length === 0 && pendingOutboundChatQueueCache.length > 0) {
     pending = [...pendingOutboundChatQueueCache];
@@ -442,15 +357,9 @@ export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
 
 export async function getUserSavedTargets(userId: string): Promise<PlayerProfile[]> {
   if (!userId) return [];
-  if (db) {
-    try {
-      const snap = await getDoc(doc(db, 'users', userId));
-      if (snap.exists() && Array.isArray(snap.data().savedTargets)) {
-        return snap.data().savedTargets;
-      }
-    } catch (e) {
-      console.warn('[STORE] getUserSavedTargets Firestore error:', e);
-    }
+  const docData = await getFirestoreDoc<{ savedTargets?: PlayerProfile[] }>(`users/${userId}`);
+  if (docData && Array.isArray(docData.savedTargets)) {
+    return docData.savedTargets;
   }
   return userSavedTargetsCache[userId] || [];
 }
@@ -467,20 +376,10 @@ export async function saveUserTargetCard(userId: string, player: PlayerProfile):
   }
   userSavedTargetsCache[userId] = updated;
 
-  if (db) {
-    try {
-      await setDoc(
-        doc(db, 'users', userId),
-        {
-          savedTargets: JSON.parse(JSON.stringify(updated)),
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (e) {
-      console.warn('[STORE] saveUserTargetCard Firestore error:', e);
-    }
-  }
+  await setFirestoreDoc(`users/${userId}`, {
+    savedTargets: JSON.parse(JSON.stringify(updated)),
+    lastUpdated: new Date().toISOString(),
+  });
   return updated;
 }
 
@@ -490,19 +389,9 @@ export async function removeUserTargetCard(userId: string, playerName: string): 
   const updated = current.filter((p) => p.name.toLowerCase() !== playerName.toLowerCase());
   userSavedTargetsCache[userId] = updated;
 
-  if (db) {
-    try {
-      await setDoc(
-        doc(db, 'users', userId),
-        {
-          savedTargets: JSON.parse(JSON.stringify(updated)),
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (e) {
-      console.warn('[STORE] removeUserTargetCard Firestore error:', e);
-    }
-  }
+  await setFirestoreDoc(`users/${userId}`, {
+    savedTargets: JSON.parse(JSON.stringify(updated)),
+    lastUpdated: new Date().toISOString(),
+  });
   return updated;
 }
