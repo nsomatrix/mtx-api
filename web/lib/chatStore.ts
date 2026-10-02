@@ -89,6 +89,7 @@ export function subscribeToChatTelemetry(
 
     const poll = async () => {
       if (isUnmounted) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       try {
         const url = latestTimestamp
           ? `/api/v1/chat?since=${encodeURIComponent(latestTimestamp)}`
@@ -110,7 +111,7 @@ export function subscribeToChatTelemetry(
 
     // Initial fetch to sync up
     poll();
-    pollingInterval = setInterval(poll, 2500);
+    pollingInterval = setInterval(poll, 10000);
   };
 
   // Attempt Engine 1: Firebase Firestore Real-Time WebSocket Push (Single Rolling Document live_stream)

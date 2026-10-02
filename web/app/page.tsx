@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { PlayerProfile } from '@/lib/store';
+import { db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { PlatformHero } from '@/components/PlatformHero';
@@ -11,6 +13,7 @@ import { ApiExplorer } from '@/components/ApiExplorer';
 export default function Home() {
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
 
+  // Fallback REST fetch if Firebase client is not active
   const fetchPlayers = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/players');
@@ -23,10 +26,29 @@ export default function Home() {
     }
   }, []);
 
+  // Real-Time BaaS WebSocket Listener (0 Cloudflare Worker requests)
   useEffect(() => {
-    fetchPlayers();
-    const interval = setInterval(fetchPlayers, 5000);
-    return () => clearInterval(interval);
+    if (db) {
+      const unsub = onSnapshot(
+        doc(db, 'system', 'players'),
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            if (Array.isArray(data.players)) {
+              setPlayers(data.players);
+            }
+          }
+        },
+        (err) => {
+          console.warn('[Dashboard] Realtime players listener warning:', err);
+        }
+      );
+      return () => unsub();
+    } else {
+      fetchPlayers();
+      const interval = setInterval(fetchPlayers, 20000);
+      return () => clearInterval(interval);
+    }
   }, [fetchPlayers]);
 
   return (

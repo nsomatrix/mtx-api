@@ -117,7 +117,7 @@ public class MatrixWebClient {
                 MatrixLogger.log("WEB-REST", "Background Telemetry Poller active!");
                 while (enableWebSync && enablePolling) {
                     try {
-                        Thread.sleep(2500); // Poll every 2.5 seconds for new web inspect targets & outbound chat commands
+                        Thread.sleep(6000); // Poll every 6.0 seconds for new web inspect targets & outbound chat commands
                         checkPendingInspectTarget();
                         checkPendingOutboundChat();
                     } catch (Exception e) {

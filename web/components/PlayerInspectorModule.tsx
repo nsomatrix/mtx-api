@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PlayerProfile } from '@/lib/store';
 import { copyToClipboard } from '@/lib/copy';
+import { db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   Search,
   RefreshCw,
@@ -88,6 +90,7 @@ export function PlayerInspectorModule() {
   const [sessionPlayers, setSessionPlayers] = useState<PlayerProfile[]>([]);
   const [targetName, setTargetName] = useState('');
   const [fetching, setFetching] = useState(false);
+  const [pendingTargetName, setPendingTargetName] = useState<string | null>(null);
   const [refreshingTarget, setRefreshingTarget] = useState<string | null>(null);
   const [fetchMsg, setFetchMsg] = useState<{ type: 'success' | 'info' | 'loading' | 'error'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +99,8 @@ export function PlayerInspectorModule() {
   const [equipmentTab, setEquipmentTab] = useState<1 | 2>(1);
   const [copied, setCopied] = useState(false);
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
+
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Lock background page scrolling when a player details or equipment modal is open
   useEffect(() => {
@@ -127,6 +132,75 @@ export function PlayerInspectorModule() {
     32: 'Clan Badge',
     33: 'Artifact',
   };
+
+  // Real-Time BaaS WebSocket Listener (0 Cloudflare Edge API Calls)
+  useEffect(() => {
+    if (!db) return;
+
+    const unsub = onSnapshot(
+      doc(db, 'system', 'players'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const allPlayers: PlayerProfile[] = Array.isArray(data.players) ? data.players : [];
+
+          // If we have a pending inspect request, check if it has arrived in real-time
+          if (pendingTargetName) {
+            const found = allPlayers.find(
+              (p) => p.name.toLowerCase() === pendingTargetName.toLowerCase()
+            );
+
+            if (found) {
+              if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+              }
+
+              const isOffline = found.status === 'OFFLINE' || found.online === false || !!found.error;
+
+              setSessionPlayers((prev) => {
+                const idx = prev.findIndex((p) => p.name.toLowerCase() === found.name.toLowerCase());
+                if (isOffline) {
+                  if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = { ...updated[idx], online: false, status: 'OFFLINE', error: found.error };
+                    return updated;
+                  }
+                  return prev;
+                } else {
+                  if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = found;
+                    return updated;
+                  }
+                  return [found, ...prev];
+                }
+              });
+
+              if (isOffline) {
+                setFetchMsg({
+                  type: 'error',
+                  text: `Player "${found.name}" is OFFLINE: ${found.error || 'Not online currently.'}`,
+                });
+              } else {
+                setFetchMsg({ type: 'success', text: `Retrieved live profile for "${found.name}"!` });
+              }
+
+              setFetching(false);
+              setPendingTargetName(null);
+              setRefreshingTarget(null);
+              setTargetName('');
+            }
+          }
+        }
+      },
+      (err) => {
+        console.warn('[Inspector] Firestore realtime players sync warning:', err);
+      }
+    );
+
+    return () => unsub();
+  }, [pendingTargetName]);
 
   // Cooldown interval timer
   useEffect(() => {
@@ -188,15 +262,6 @@ export function PlayerInspectorModule() {
     }
   };
 
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const stopPolling = () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-  };
-
   const MAX_LIVE_CARDS = 8;
 
   const handleDismissPlayer = async (playerName: string) => {
@@ -227,6 +292,7 @@ export function PlayerInspectorModule() {
     }
 
     setRefreshingTarget(cleanName);
+    setPendingTargetName(cleanName);
     setFetchMsg({ type: 'loading', text: `Refreshing live stats for "${cleanName}"` });
 
     setCooldownSeconds(cleanName);
@@ -243,57 +309,24 @@ export function PlayerInspectorModule() {
         const data = await res.json();
         setFetchMsg({ type: 'error', text: data.error || 'Failed to trigger refresh inspection.' });
         setRefreshingTarget(null);
+        setPendingTargetName(null);
         return;
       }
 
-      const startTime = Date.now();
-      const pollTarget = async () => {
-        try {
-          const checkRes = await fetch(`/api/v1/players?q=${encodeURIComponent(cleanName)}`);
-          if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            const found = (checkData.players || []).find(
-              (p: PlayerProfile) => p.name.toLowerCase() === cleanName.toLowerCase()
-            );
-
-            if (found) {
-              setSessionPlayers((prev) => {
-                const idx = prev.findIndex((p) => p.name.toLowerCase() === found.name.toLowerCase());
-                if (idx >= 0) {
-                  const copy = [...prev];
-                  copy[idx] = found;
-                  return copy;
-                }
-                return [found, ...prev];
-              });
-
-              setFetchMsg({ type: 'success', text: `Updated live profile for "${found.name}"!` });
-              setRefreshingTarget(null);
-              return true;
-            }
-          }
-        } catch (err) {
-          console.warn('Refresh poll error:', err);
-        }
-
-        if (Date.now() - startTime > 15000) {
-          setFetchMsg({
-            type: 'info',
-            text: `Refresh queued for "${cleanName}". Stats will update when player is active.`,
-          });
-          setRefreshingTarget(null);
-          return true;
-        }
-        return false;
-      };
-
-      const pollTimer = setInterval(async () => {
-        const done = await pollTarget();
-        if (done) clearInterval(pollTimer);
-      }, 1500);
+      // Timeout fallback if player doesn't respond in 15 seconds
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        setFetchMsg({
+          type: 'info',
+          text: `Refresh queued for "${cleanName}". Profile will update when character is active.`,
+        });
+        setRefreshingTarget(null);
+        setPendingTargetName(null);
+      }, 15000);
     } catch {
       setFetchMsg({ type: 'error', text: 'Network connection failed.' });
       setRefreshingTarget(null);
+      setPendingTargetName(null);
     }
   };
 
@@ -311,8 +344,8 @@ export function PlayerInspectorModule() {
       return;
     }
 
-    stopPolling();
     setFetching(true);
+    setPendingTargetName(cleanName);
     setFetchMsg({ type: 'loading', text: `Requesting player info for "${cleanName}"` });
 
     try {
@@ -326,80 +359,26 @@ export function PlayerInspectorModule() {
       if (!res.ok) {
         setFetchMsg({ type: 'error', text: data.error || 'Failed to send inspection request' });
         setFetching(false);
+        setPendingTargetName(null);
         return;
       }
 
       setFetchMsg({ type: 'loading', text: `Waiting for game client to inspect "${cleanName}"` });
 
-      const startTime = Date.now();
-      const pollTarget = async () => {
-        try {
-          const checkRes = await fetch(`/api/v1/players?q=${encodeURIComponent(cleanName)}`);
-          if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            const found = (checkData.players || []).find(
-              (p: PlayerProfile) => p.name.toLowerCase() === cleanName.toLowerCase()
-            );
-
-            if (found) {
-              stopPolling();
-              const isOffline = found.status === 'OFFLINE' || found.online === false || !!found.error;
-
-              setSessionPlayers((prev) => {
-                const idx = prev.findIndex((p) => p.name.toLowerCase() === found.name.toLowerCase());
-                if (isOffline) {
-                  if (idx >= 0) {
-                    const updated = [...prev];
-                    updated[idx] = { ...updated[idx], online: false, status: 'OFFLINE', error: found.error };
-                    return updated;
-                  }
-                  return prev;
-                } else {
-                  if (idx >= 0) {
-                    const updated = [...prev];
-                    updated[idx] = found;
-                    return updated;
-                  }
-                  return [found, ...prev];
-                }
-              });
-
-              if (isOffline) {
-                setFetchMsg({
-                  type: 'error',
-                  text: `Player "${found.name}" is OFFLINE: ${found.error || 'They are not online at this moment.'}`,
-                });
-              } else {
-                setFetchMsg({ type: 'success', text: `Successfully retrieved profile for "${found.name}"!` });
-              }
-              setFetching(false);
-              setTargetName('');
-              return true;
-            }
-          }
-        } catch (err) {
-          console.warn('Target poll error:', err);
-        }
-
-        if (Date.now() - startTime > 15000) {
-          stopPolling();
-          setFetchMsg({
-            type: 'info',
-            text: `Inspection queued for "${cleanName}". Profile will update when the player is online.`,
-          });
-          setFetching(false);
-          return true;
-        }
-        return false;
-      };
-
-      const done = await pollTarget();
-      if (!done) {
-        pollIntervalRef.current = setInterval(pollTarget, 1500);
-      }
+      // Timeout fallback
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        setFetchMsg({
+          type: 'info',
+          text: `Inspection queued for "${cleanName}". Profile will update when the player is online.`,
+        });
+        setFetching(false);
+        setPendingTargetName(null);
+      }, 15000);
     } catch {
       setFetchMsg({ type: 'error', text: 'Unable to connect to service. Please try again.' });
       setFetching(false);
+      setPendingTargetName(null);
     }
   };
 
