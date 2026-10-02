@@ -3,6 +3,7 @@ import { queueOutboundChatMessage, popPendingOutboundChatMessages } from '@/lib/
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
 import { verifyAuthToken } from '@/lib/authVerify';
 
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const NO_CACHE_HEADERS = {

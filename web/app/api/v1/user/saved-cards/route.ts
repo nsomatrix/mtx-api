@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getUserSavedTargets, saveUserTargetCard, removeUserTargetCard } from '@/lib/store';
 
+export const runtime = 'edge';
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);

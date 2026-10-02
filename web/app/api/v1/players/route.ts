@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAllPlayers, saveOrUpdatePlayer, clearAllPlayers, deletePlayerByName, touchModClientHeartbeat } from '@/lib/store';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
 
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const NO_CACHE_HEADERS = {
