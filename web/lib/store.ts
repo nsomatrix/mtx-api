@@ -54,31 +54,13 @@ export interface ChatMessage {
 const AUTO_CLEAR_MS = 30 * 60 * 1000; // Auto clear after 30 minutes
 export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
 
-// Ephemeral memory cache for warm executions
-const globalStore = globalThis as unknown as {
-  _matrixPlayersStore?: PlayerProfile[];
-  _pendingInspectQueue?: string[];
-  _matrixChatStore?: ChatMessage[];
-  _pendingOutboundChatQueue?: ChatMessage[];
-  _userSavedTargetsStore?: Record<string, PlayerProfile[]>;
-  _lastModClientActivityTimestamp?: number;
-};
-
-if (!globalStore._matrixPlayersStore) {
-  globalStore._matrixPlayersStore = [];
-}
-if (!globalStore._pendingInspectQueue) {
-  globalStore._pendingInspectQueue = [];
-}
-if (!globalStore._matrixChatStore) {
-  globalStore._matrixChatStore = [];
-}
-if (!globalStore._userSavedTargetsStore) {
-  globalStore._userSavedTargetsStore = {};
-}
-if (!globalStore._lastModClientActivityTimestamp) {
-  globalStore._lastModClientActivityTimestamp = 0;
-}
+// Safe module-level closure cache (Never mutates globalThis to avoid Cloudflare Workers runtime freeze)
+let matrixPlayersCache: PlayerProfile[] = [];
+let pendingInspectQueueCache: string[] = [];
+let matrixChatCache: ChatMessage[] = [];
+let pendingOutboundChatQueueCache: ChatMessage[] = [];
+let userSavedTargetsCache: Record<string, PlayerProfile[]> = {};
+let lastModClientActivityTimestamp = 0;
 
 /**
  * Touch the mod client activity timestamp whenever an active mod client
@@ -86,7 +68,7 @@ if (!globalStore._lastModClientActivityTimestamp) {
  */
 export async function touchModClientHeartbeat() {
   const now = Date.now();
-  globalStore._lastModClientActivityTimestamp = now;
+  lastModClientActivityTimestamp = now;
   if (db) {
     try {
       await setDoc(doc(db, 'system', 'heartbeat'), { lastActive: now, lastUpdated: new Date().toISOString() }, { merge: true });
@@ -101,7 +83,7 @@ export async function touchModClientHeartbeat() {
  * Default max age: 20 seconds.
  */
 export async function getModClientStatus(maxAgeMs = 20000) {
-  let lastActive = globalStore._lastModClientActivityTimestamp || 0;
+  let lastActive = lastModClientActivityTimestamp || 0;
   if (db) {
     try {
       const snap = await getDoc(doc(db, 'system', 'heartbeat'));
@@ -109,7 +91,7 @@ export async function getModClientStatus(maxAgeMs = 20000) {
         const data = snap.data();
         if (typeof data.lastActive === 'number' && data.lastActive > lastActive) {
           lastActive = data.lastActive;
-          globalStore._lastModClientActivityTimestamp = lastActive;
+          lastModClientActivityTimestamp = lastActive;
         }
       }
     } catch (e) {}
@@ -136,7 +118,7 @@ export function pruneExpiredPlayers(players: PlayerProfile[]): PlayerProfile[] {
 }
 
 export async function getAllPlayers(): Promise<PlayerProfile[]> {
-  let loaded: PlayerProfile[] = globalStore._matrixPlayersStore || [];
+  let loaded: PlayerProfile[] = matrixPlayersCache || [];
   if (db) {
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
@@ -144,7 +126,7 @@ export async function getAllPlayers(): Promise<PlayerProfile[]> {
         const data = snap.data();
         if (Array.isArray(data.players)) {
           loaded = data.players;
-          globalStore._matrixPlayersStore = loaded;
+          matrixPlayersCache = loaded;
         }
       }
     } catch (e) {
@@ -155,7 +137,7 @@ export async function getAllPlayers(): Promise<PlayerProfile[]> {
 }
 
 export async function saveAllPlayers(players: PlayerProfile[]) {
-  globalStore._matrixPlayersStore = players;
+  matrixPlayersCache = players;
   if (db) {
     try {
       await setDoc(
@@ -173,7 +155,7 @@ export async function saveAllPlayers(players: PlayerProfile[]) {
 }
 
 export async function clearAllPlayers() {
-  globalStore._pendingInspectQueue = [];
+  pendingInspectQueueCache = [];
   await saveAllPlayers([]);
   if (db) {
     try {
@@ -184,11 +166,8 @@ export async function clearAllPlayers() {
 
 // Queue functions for J2ME inspect triggers
 export async function pushInspectQueue(targetName: string) {
-  if (!globalStore._pendingInspectQueue) {
-    globalStore._pendingInspectQueue = [];
-  }
-  if (!globalStore._pendingInspectQueue.includes(targetName)) {
-    globalStore._pendingInspectQueue.push(targetName);
+  if (!pendingInspectQueueCache.includes(targetName)) {
+    pendingInspectQueueCache.push(targetName);
   }
   if (db) {
     try {
@@ -220,8 +199,8 @@ export async function popInspectQueue(): Promise<string | null> {
       console.warn('[STORE] popInspectQueue Firestore error:', e);
     }
   }
-  if (!target && globalStore._pendingInspectQueue && globalStore._pendingInspectQueue.length > 0) {
-    target = globalStore._pendingInspectQueue.shift() || null;
+  if (!target && pendingInspectQueueCache.length > 0) {
+    target = pendingInspectQueueCache.shift() || null;
   }
   return target;
 }
@@ -291,7 +270,7 @@ export async function getAllChatMessages(
   sinceTimestamp?: string,
   limit: number = 1500
 ): Promise<ChatMessage[]> {
-  let loaded: ChatMessage[] = globalStore._matrixChatStore || [];
+  let loaded: ChatMessage[] = matrixChatCache || [];
   if (db) {
     try {
       const snap = await getDoc(doc(db, 'telemetry_chat', 'live_stream'));
@@ -299,7 +278,7 @@ export async function getAllChatMessages(
         const data = snap.data();
         if (Array.isArray(data.messages)) {
           loaded = data.messages;
-          globalStore._matrixChatStore = loaded;
+          matrixChatCache = loaded;
         }
       }
     } catch (e) {
@@ -335,7 +314,7 @@ export async function getAllChatMessages(
 }
 
 export async function saveAllChatMessages(messages: ChatMessage[]) {
-  globalStore._matrixChatStore = messages;
+  matrixChatCache = messages;
   if (db) {
     try {
       await setDoc(
@@ -404,8 +383,8 @@ export async function saveChatMessage(data: {
 }
 
 export async function clearAllChatMessages() {
-  globalStore._matrixChatStore = [];
-  globalStore._pendingOutboundChatQueue = [];
+  matrixChatCache = [];
+  pendingOutboundChatQueueCache = [];
   await saveAllChatMessages([]);
   if (db) {
     try {
@@ -436,8 +415,7 @@ export async function queueOutboundChatMessage(data: {
       console.warn('[STORE] queueOutboundChatMessage error:', e);
     }
   } else {
-    if (!globalStore._pendingOutboundChatQueue) globalStore._pendingOutboundChatQueue = [];
-    globalStore._pendingOutboundChatQueue.push(msg);
+    pendingOutboundChatQueueCache.push(msg);
   }
   return msg;
 }
@@ -455,9 +433,9 @@ export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
       console.warn('[STORE] popPendingOutboundChatMessages error:', e);
     }
   }
-  if (pending.length === 0 && globalStore._pendingOutboundChatQueue && globalStore._pendingOutboundChatQueue.length > 0) {
-    pending = [...globalStore._pendingOutboundChatQueue];
-    globalStore._pendingOutboundChatQueue = [];
+  if (pending.length === 0 && pendingOutboundChatQueueCache.length > 0) {
+    pending = [...pendingOutboundChatQueueCache];
+    pendingOutboundChatQueueCache = [];
   }
   return pending;
 }
@@ -474,7 +452,7 @@ export async function getUserSavedTargets(userId: string): Promise<PlayerProfile
       console.warn('[STORE] getUserSavedTargets Firestore error:', e);
     }
   }
-  return globalStore._userSavedTargetsStore?.[userId] || [];
+  return userSavedTargetsCache[userId] || [];
 }
 
 export async function saveUserTargetCard(userId: string, player: PlayerProfile): Promise<PlayerProfile[]> {
@@ -487,8 +465,7 @@ export async function saveUserTargetCard(userId: string, player: PlayerProfile):
   } else {
     updated = [player, ...current];
   }
-  if (!globalStore._userSavedTargetsStore) globalStore._userSavedTargetsStore = {};
-  globalStore._userSavedTargetsStore[userId] = updated;
+  userSavedTargetsCache[userId] = updated;
 
   if (db) {
     try {
@@ -511,8 +488,7 @@ export async function removeUserTargetCard(userId: string, playerName: string): 
   if (!userId) return [];
   const current = await getUserSavedTargets(userId);
   const updated = current.filter((p) => p.name.toLowerCase() !== playerName.toLowerCase());
-  if (!globalStore._userSavedTargetsStore) globalStore._userSavedTargetsStore = {};
-  globalStore._userSavedTargetsStore[userId] = updated;
+  userSavedTargetsCache[userId] = updated;
 
   if (db) {
     try {

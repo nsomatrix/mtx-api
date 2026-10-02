@@ -10,19 +10,35 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  const modStatus = await getModClientStatus(20000); // 20s threshold
-  const players = await getAllPlayers();
+  try {
+    const modStatus = await getModClientStatus(20000); // 20s threshold
+    const players = await getAllPlayers();
 
-  return NextResponse.json(
-    {
-      status: 200,
-      modClientOnline: modStatus.isOnline,
-      lastSeenMsAgo: modStatus.lastSeenMsAgo,
-      playerCount: players.length,
-    },
-    {
-      status: 200,
-      headers: NO_CACHE_HEADERS,
-    }
-  );
+    return NextResponse.json(
+      {
+        status: 200,
+        modClientOnline: modStatus.isOnline,
+        lastSeenMsAgo: modStatus.lastSeenMsAgo,
+        playerCount: players.length,
+      },
+      {
+        status: 200,
+        headers: NO_CACHE_HEADERS,
+      }
+    );
+  } catch (err: any) {
+    console.error('[MTX-API-STATUS] GET error:', err);
+    return NextResponse.json(
+      {
+        status: 200,
+        modClientOnline: false,
+        lastSeenMsAgo: null,
+        playerCount: 0,
+      },
+      {
+        status: 200,
+        headers: NO_CACHE_HEADERS,
+      }
+    );
+  }
 }

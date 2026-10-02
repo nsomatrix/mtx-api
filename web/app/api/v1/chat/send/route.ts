@@ -12,15 +12,26 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  const pending = await popPendingOutboundChatMessages();
-  return NextResponse.json(
-    {
-      status: 200,
-      count: pending.length,
-      pending: pending,
-    },
-    { status: 200, headers: NO_CACHE_HEADERS }
-  );
+  try {
+    const pending = await popPendingOutboundChatMessages();
+    return NextResponse.json(
+      {
+        status: 200,
+        count: pending.length,
+        pending: pending,
+      },
+      { status: 200, headers: NO_CACHE_HEADERS }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      {
+        status: 200,
+        count: 0,
+        pending: [],
+      },
+      { status: 200, headers: NO_CACHE_HEADERS }
+    );
+  }
 }
 
 export async function POST(request: Request) {

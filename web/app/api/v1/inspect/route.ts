@@ -11,18 +11,33 @@ const NO_CACHE_HEADERS = {
 };
 
 export async function GET() {
-  await touchModClientHeartbeat();
-  const target = await popInspectQueue();
-  return NextResponse.json(
-    {
-      status: 200,
-      target: target
-    },
-    {
-      status: 200,
-      headers: NO_CACHE_HEADERS
-    }
-  );
+  try {
+    await touchModClientHeartbeat();
+    const target = await popInspectQueue();
+    return NextResponse.json(
+      {
+        status: 200,
+        target: target
+      },
+      {
+        status: 200,
+        headers: NO_CACHE_HEADERS
+      }
+    );
+  } catch (err: any) {
+    console.error('[MTX-API-INSPECT] GET error:', err);
+    return NextResponse.json(
+      {
+        status: 200,
+        target: null,
+        error: err.message
+      },
+      {
+        status: 200,
+        headers: NO_CACHE_HEADERS
+      }
+    );
+  }
 }
 
 export async function POST(request: Request) {
