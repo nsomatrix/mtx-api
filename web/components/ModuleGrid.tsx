@@ -11,12 +11,12 @@ interface ModuleGridProps {
 export function ModuleGrid({ targetCount }: ModuleGridProps) {
   const activeModules = [
     {
-      id: 'player-inspector',
-      title: 'Player Inspector Engine',
+      id: 'player-io',
+      title: 'Player IO Engine',
       version: 'v1.0 ACTIVE',
-      href: '/inspector',
+      href: '/io',
       icon: UserCheck,
-      description: 'Fetch detailed player profiles via remote inspection requests & stream live telemetry.',
+      description: 'Fetch detailed player profiles via remote telemetry requests & stream live character stats.',
       badgeText: `${targetCount} Profiles`,
       actionText: 'Launch Module',
     },

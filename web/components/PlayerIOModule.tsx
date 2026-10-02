@@ -49,7 +49,7 @@ function setCooldownSeconds(playerName: string): void {
     cooldowns[playerName.toLowerCase()] = Date.now() + REFRESH_COOLDOWN_MS;
     localStorage.setItem(COOLDOWN_KEY_PREFIX, JSON.stringify(cooldowns));
   } catch (e) {
-    console.warn('[Inspector] Error setting cooldown:', e);
+    console.warn('[PlayerIO] Error setting cooldown:', e);
   }
 }
 
@@ -80,7 +80,7 @@ function AnimatedNumber({ value, duration = 750, prefix = '', suffix = '' }: { v
   return <span>{prefix}{displayValue}{suffix}</span>;
 }
 
-export function PlayerInspectorModule() {
+export function PlayerIOModule() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -195,7 +195,7 @@ export function PlayerInspectorModule() {
         }
       },
       (err) => {
-        console.warn('[Inspector] Firestore realtime players sync warning:', err);
+        console.warn('[PlayerIO] Firestore realtime players sync warning:', err);
       }
     );
 
@@ -449,13 +449,13 @@ export function PlayerInspectorModule() {
   );
 
   return (
-    <div id="player-inspector-module" className="space-y-6 pt-2 sm:pt-4">
+    <div id="player-io-module" className="space-y-6 pt-2 sm:pt-4">
       {/* Module Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 sm:p-6 rounded-2xl bg-zinc-900/60 border border-zinc-800/80">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-base sm:text-lg font-display font-extrabold text-white">
-              Player Inspector Module
+              Player IO Engine
             </h3>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/10 text-violet-400 border border-violet-500/20">
               REST TELEMETRY
@@ -463,12 +463,12 @@ export function PlayerInspectorModule() {
             {sessionPlayers.length > 0 && (
               <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/20 text-violet-300 border border-violet-500/30">
                 <Radio className="w-3 h-3 text-violet-400" />
-                <span>INSPECTED ({sessionPlayers.length}/{MAX_LIVE_CARDS})</span>
+                <span>ACTIVE IO ({sessionPlayers.length}/{MAX_LIVE_CARDS})</span>
               </span>
             )}
           </div>
           <p className="text-xs text-zinc-400 font-sans">
-            Enter any player name to trigger on-demand character inspection and view real-time profile stats.
+            Enter any player name to trigger on-demand character telemetry and view real-time profile stats.
           </p>
         </div>
 

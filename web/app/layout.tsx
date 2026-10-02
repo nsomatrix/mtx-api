@@ -6,7 +6,7 @@ import { AuthGuard } from '@/components/AuthGuard';
 
 export const metadata: Metadata = {
   title: 'mtx-api — NSO Core Access - RestAPI',
-  description: 'Real-time player inspector and REST API synchronization portal for Ninja School Online.',
+  description: 'Real-time Player IO Engine and REST API synchronization portal for Ninja School Online.',
 };
 
 export const viewport: Viewport = {

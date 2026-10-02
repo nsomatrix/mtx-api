@@ -3,10 +3,10 @@
 import React, { useState } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
-import { PlayerInspectorModule } from '@/components/PlayerInspectorModule';
+import { PlayerIOModule } from '@/components/PlayerIOModule';
 
-export default function InspectorPage() {
-  const [activeTab, setActiveTab] = useState('inspector');
+export default function PlayerIOPage() {
+  const [activeTab, setActiveTab] = useState('io');
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col font-sans selection:bg-violet-500/30 selection:text-violet-400">
@@ -29,15 +29,15 @@ export default function InspectorPage() {
             <span className="text-zinc-400 text-xs font-mono">REST Telemetry & Live Sync</span>
           </div>
           <h1 className="text-3xl font-display font-extrabold text-white tracking-tight mt-2">
-            Player Inspector Engine
+            Player IO Engine
           </h1>
           <p className="text-sm text-zinc-400 max-w-2xl font-sans mt-1">
-            Dedicated operational environment for requesting remote character inspections and viewing profile stats in real time.
+            Dedicated operational environment for requesting remote character telemetry and viewing real-time profile stats.
           </p>
         </div>
 
-        {/* Dedicated Player Inspector Component (Clean On-Demand Session) */}
-        <PlayerInspectorModule />
+        {/* Dedicated Player IO Component (Clean On-Demand Session) */}
+        <PlayerIOModule />
       </main>
 
       {/* Footer */}

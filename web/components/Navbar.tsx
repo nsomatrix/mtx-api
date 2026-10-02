@@ -25,7 +25,7 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', href: '/', icon: Activity },
-    { id: 'inspector', label: 'Inspector', href: '/inspector', icon: Search },
+    { id: 'io', label: 'Player IO', href: '/io', icon: Search },
     { id: 'chat', label: 'Live Chat', href: '/chat', icon: MessageSquare },
     { id: 'docs', label: 'API Docs', href: '/docs', icon: FileText },
   ];
