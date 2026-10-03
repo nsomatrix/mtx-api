@@ -393,7 +393,10 @@ public class MatrixWebClient {
      */
     public static boolean handleNoticeDialog(String text) {
         if (text == null || text.trim().length() == 0) return false;
+
         String target = mod.net.MatrixNet.lastRequestedTarget;
+
+
         long reqTime = mod.net.MatrixNet.lastRequestedTime;
         long now = System.currentTimeMillis();
 

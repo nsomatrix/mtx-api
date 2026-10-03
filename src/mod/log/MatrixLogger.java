@@ -42,8 +42,12 @@ public class MatrixLogger {
             log("CHAT", "[" + channel + "] " + sender + " -> " + recipient + ": \"" + message + "\"");
         } else {
             log("CHAT", "[" + channel + "] " + sender + ": \"" + message + "\"");
+            if ("Whisper".equalsIgnoreCase(channel) || "PM".equalsIgnoreCase(channel)) {
+                mod.escrow.MatrixEscrowBot.onPrivateMessageReceived(sender, message);
+            }
         }
     }
+
 
     public static void logPlayerInfo(bp player) {
         if (player == null || player.ab == null || player.ab.trim().length() == 0) return;

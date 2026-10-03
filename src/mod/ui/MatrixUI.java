@@ -22,7 +22,15 @@ public class MatrixUI {
         if (commandId == 888999) {
             showMatrixMenu();
             return true;
+        } else if (commandId == 888930) { // Sub-option: Escrow Bot Status
+            String sender = mod.escrow.MatrixEscrowBot.getSenderName();
+            String target = mod.escrow.MatrixEscrowBot.getTargetName();
+            a.a("Escrow Bot Status:\nState: " + mod.escrow.MatrixEscrowBot.getCurrentState() 
+                + "\nSender: " + (sender != null ? sender : "None")
+                + "\nTarget: " + (target != null ? target : "None"));
+            return true;
         } else if (commandId == 888901) { // Sub-option: Inspect Player Target
+
             promptPlayerName();
             return true;
         } else if (commandId == 888903) { // Triggered when OK button is pressed on inspect dialog
@@ -81,6 +89,7 @@ public class MatrixUI {
     public static void showMatrixMenu() {
         aa menuList = new aa();
         menuList.addElement(new bd("Inspect Player Target", 888901));
+        menuList.addElement(new bd("Escrow Bot State [" + mod.escrow.MatrixEscrowBot.getCurrentState() + "]", 888930));
         menuList.addElement(new bd("Chat Console", 888920));
         boolean syncState = mod.web.MatrixWebClient.enableWebSync;
         menuList.addElement(new bd("REST Web Sync [" + (syncState ? "ON" : "OFF") + "]", 888904));
@@ -89,6 +98,7 @@ public class MatrixUI {
         menuList.addElement(new bd("Auto Login [" + (autoLoginState ? "ON" : "OFF") + "]", 888907));
         a.F.a(menuList); // Native interactive menu list
     }
+
 
     /**
      * Displays dedicated Chat Console sub-menu.
