@@ -167,68 +167,6 @@ const data = await response.json();`,
   "message": "Target queued for inspection",
   "target": "opensource"
 }`
-    },
-    {
-      id: 'get-chat',
-      category: 'chat',
-      method: 'GET',
-      path: '/api/v1/chat',
-      title: 'Fetch Real-Time Chat Telemetry Logs',
-      description: 'Retrieves active chat logs streamed from J2ME game clients.',
-      queryParams: [
-        { name: 'channel', type: 'string', optional: true, description: 'Filter by channel: all, global, public, pm, clan.' },
-        { name: 'limit', type: 'number', optional: true, description: 'Maximum message count (default: 50).' }
-      ],
-      curlSnippet: `curl -X GET "https://your-domain.com/api/v1/chat?channel=global&limit=20"`,
-      jsSnippet: `const response = await fetch('/api/v1/chat?channel=global&limit=20');
-const data = await response.json();
-console.log(data.messages);`,
-      responseJson: `{
-  "success": true,
-  "messages": [
-    {
-      "id": "msg-1724600000",
-      "sender": "opensource",
-      "content": "Selling Kunai level 90 +16!",
-      "channel": "Global",
-      "timestamp": 1724600000000
-    }
-  ]
-}`
-    },
-    {
-      id: 'post-chat',
-      category: 'chat',
-      method: 'POST',
-      path: '/api/v1/chat',
-      title: 'Stream Chat Telemetry Message',
-      description: 'Pushes intercepted game chat packets to the web telemetry dashboard.',
-      bodyParams: [
-        { name: 'sender', type: 'string', required: true, description: 'Sender character name.' },
-        { name: 'content', type: 'string', required: true, description: 'Chat message text.' },
-        { name: 'channel', type: 'string', required: true, description: 'Chat channel (Global, Public, PM, Clan).' }
-      ],
-      curlSnippet: `curl -X POST "https://your-domain.com/api/v1/chat" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "sender": "opensource",
-    "content": "Selling Kunai level 90 +16!",
-    "channel": "Global"
-  }'`,
-      jsSnippet: `const response = await fetch('/api/v1/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    sender: 'opensource',
-    content: 'Selling Kunai level 90 +16!',
-    channel: 'Global'
-  })
-});
-const data = await response.json();`,
-      responseJson: `{
-  "success": true,
-  "message": "Chat telemetry logged"
-}`
     }
   ];
 
@@ -254,7 +192,7 @@ const data = await response.json();`,
             </h1>
 
             <p className="text-xs sm:text-sm text-zinc-400 max-w-3xl leading-relaxed font-sans">
-              Complete HTTP API reference for Ninja School Online J2ME mod client telemetry integration. Ingest live character profiles, poll remote inspection queues, and stream chat telemetry.
+              Complete HTTP API reference for Ninja School Online J2ME mod client telemetry integration. Ingest live character profiles and poll remote inspection queues.
             </p>
 
             {/* Mobile Touch-Friendly Category Scroll Filter */}
@@ -263,7 +201,6 @@ const data = await response.json();`,
                 { id: 'all', label: 'All Endpoints' },
                 { id: 'players', label: 'Player Profiles (/players)' },
                 { id: 'inspect', label: 'Remote Inspection (/inspect)' },
-                { id: 'chat', label: 'Chat Telemetry (/chat)' },
               ].map((tab) => (
                 <button
                   key={tab.id}

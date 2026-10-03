@@ -65,38 +65,7 @@ public class MatrixWebClient {
         return base + "/api/v1/inspect";
     }
 
-    /**
-     * Resolves the full POST chat API URL regardless of how user entered it.
-     */
-    public static String getChatEndpointUrl() {
-        if (restApiEndpoint == null || restApiEndpoint.trim().length() == 0) return null;
-        String base = restApiEndpoint.trim();
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        if (base.endsWith("/api/v1/players") || base.endsWith("/api/v1/inspect")) {
-            return base.substring(0, base.lastIndexOf('/')) + "/chat";
-        }
-        if (base.endsWith("/api/v1/chat")) {
-            return base;
-        }
-        if (base.endsWith("/api/v1")) {
-            return base + "/chat";
-        }
-        return base + "/api/v1/chat";
-    }
 
-    /**
-     * Resolves full POST/GET outbound chat URL regardless of how user entered it.
-     */
-    public static String getChatSendEndpointUrl() {
-        String chatUrl = getChatEndpointUrl();
-        if (chatUrl == null) return null;
-        if (chatUrl.endsWith("/")) {
-            chatUrl = chatUrl.substring(0, chatUrl.length() - 1);
-        }
-        return chatUrl + "/send";
-    }
 
     private static java.util.Vector activeLiveTargets = new java.util.Vector();
     private static java.util.Hashtable lastPostTimes = new java.util.Hashtable();
@@ -117,9 +86,8 @@ public class MatrixWebClient {
                 MatrixLogger.log("WEB-REST", "Background Telemetry Poller active!");
                 while (enableWebSync && enablePolling) {
                     try {
-                        Thread.sleep(6000); // Poll every 6.0 seconds for new web inspect targets & outbound chat commands
+                        Thread.sleep(6000); // Poll every 6.0 seconds for new web inspect targets
                         checkPendingInspectTarget();
-                        checkPendingOutboundChat();
                     } catch (Exception e) {
                     }
                 }
@@ -180,90 +148,7 @@ public class MatrixWebClient {
         }
     }
 
-    private static void checkPendingOutboundChat() {
-        if (!enableWebSync || restApiEndpoint == null || restApiEndpoint.trim().length() == 0) return;
-        String sendUrl = getChatSendEndpointUrl();
-        if (sendUrl == null) return;
 
-        HttpConnection conn = null;
-        InputStream is = null;
-        try {
-            conn = (HttpConnection) Connector.open(sendUrl, Connector.READ, true);
-            conn.setRequestMethod(HttpConnection.GET);
-            conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
-
-            int code = conn.getResponseCode();
-            if (code == HttpConnection.HTTP_OK) {
-                is = conn.openInputStream();
-                StringBuffer sb = new StringBuffer();
-                int ch;
-                while ((ch = is.read()) != -1) {
-                    sb.append((char) ch);
-                }
-                String resp = sb.toString();
-                parseAndDispatchOutboundChat(resp);
-            }
-        } catch (Exception e) {
-            // Silently ignore connection glitches during background polling
-        } finally {
-            try { if (is != null) is.close(); } catch (Exception ex) {}
-            try { if (conn != null) conn.close(); } catch (Exception ex) {}
-        }
-    }
-
-    private static void parseAndDispatchOutboundChat(String json) {
-        if (json == null || json.indexOf("\"pending\":[") == -1) return;
-        int arrayStart = json.indexOf("\"pending\":[");
-        int arrayEnd = json.indexOf("]", arrayStart);
-        if (arrayStart == -1 || arrayEnd == -1 || arrayEnd <= arrayStart) return;
-
-        String pendingArrayStr = json.substring(arrayStart, arrayEnd);
-        int pos = 0;
-        while ((pos = pendingArrayStr.indexOf("{\"id\":", pos)) != -1) {
-            int itemEnd = pendingArrayStr.indexOf("}", pos);
-            if (itemEnd == -1) break;
-            String itemStr = pendingArrayStr.substring(pos, itemEnd + 1);
-
-            String channel = extractJsonProp(itemStr, "channel");
-            String recipient = extractJsonProp(itemStr, "recipient");
-            String message = extractJsonProp(itemStr, "message");
-
-            if (channel != null && message != null && message.length() > 0) {
-                MatrixLogger.log("WEB-CHAT", "Dispatching Web Outbound Chat [" + channel + "] -> " + message);
-                if ("PRIVATE".equalsIgnoreCase(channel) && recipient != null) {
-                    mod.chat.MatrixChat.sendPrivateMessage(recipient, message);
-                } else if ("WORLD".equalsIgnoreCase(channel)) {
-                    mod.chat.MatrixChat.sendWorldChat(message);
-                } else if ("CLAN".equalsIgnoreCase(channel)) {
-                    mod.chat.MatrixChat.sendClanChat(message);
-                } else {
-                    mod.chat.MatrixChat.sendMapChat(message);
-                }
-            }
-            pos = itemEnd + 1;
-        }
-    }
-
-    private static String extractJsonProp(String item, String prop) {
-        int keyIndex = item.indexOf("\"" + prop + "\"");
-        if (keyIndex == -1) return null;
-        int colonIndex = item.indexOf(":", keyIndex + prop.length() + 2);
-        if (colonIndex == -1) return null;
-
-        int valStart = colonIndex + 1;
-        while (valStart < item.length() && (item.charAt(valStart) == ' ' || item.charAt(valStart) == '\t')) {
-            valStart++;
-        }
-        if (valStart >= item.length()) return null;
-
-        if (item.charAt(valStart) == '"') {
-            int valEnd = item.indexOf('"', valStart + 1);
-            if (valEnd != -1) {
-                return item.substring(valStart + 1, valEnd);
-            }
-        }
-        return null;
-    }
 
     private static String extractTargetFromJson(String json) {
         if (json == null) return null;
@@ -590,86 +475,7 @@ public class MatrixWebClient {
         webThread.start();
     }
 
-    private static java.util.Vector chatDispatchQueue = new java.util.Vector();
-    private static Thread chatDispatchThread = null;
-    private static final int MAX_CHAT_QUEUE = 40;
 
-    public static synchronized void postChatMessage(final String channel, final String sender, final String recipient, final String message) {
-        if (!enableWebSync || message == null || message.trim().length() == 0) return;
-        final String postUrl = getChatEndpointUrl();
-        if (postUrl == null) return;
-
-        StringBuffer sb = new StringBuffer();
-        sb.append("{");
-        sb.append("\"channel\":").append(quote(channel)).append(",");
-        sb.append("\"sender\":").append(quote(sender)).append(",");
-        sb.append("\"recipient\":").append(quote(recipient != null ? recipient : "")).append(",");
-        sb.append("\"message\":").append(quote(message));
-        sb.append("}");
-        String jsonPayload = sb.toString();
-
-        if (chatDispatchQueue.size() >= MAX_CHAT_QUEUE) {
-            chatDispatchQueue.removeElementAt(0); // Drop oldest to prevent memory exhaustion on J2ME
-        }
-        chatDispatchQueue.addElement(jsonPayload);
-
-        startChatWorkerThread(postUrl);
-    }
-
-    private static synchronized void startChatWorkerThread(final String postUrl) {
-        if (chatDispatchThread != null && chatDispatchThread.isAlive()) {
-            return;
-        }
-
-        chatDispatchThread = new Thread(new Runnable() {
-            public void run() {
-                while (true) {
-                    String payload = null;
-                    synchronized (MatrixWebClient.class) {
-                        if (chatDispatchQueue.size() == 0) {
-                            chatDispatchThread = null;
-                            break;
-                        }
-                        payload = (String) chatDispatchQueue.elementAt(0);
-                        chatDispatchQueue.removeElementAt(0);
-                    }
-
-                    if (payload != null) {
-                        sendChatHttpRequest(postUrl, payload);
-                    }
-                }
-            }
-        });
-        chatDispatchThread.start();
-    }
-
-    private static void sendChatHttpRequest(String postUrl, String jsonPayload) {
-        HttpConnection conn = null;
-        OutputStream os = null;
-        InputStream is = null;
-        try {
-            conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
-            conn.setRequestMethod(HttpConnection.POST);
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
-
-            byte[] data = jsonPayload.getBytes("UTF-8");
-            conn.setRequestProperty("Content-Length", Integer.toString(data.length));
-
-            os = conn.openOutputStream();
-            os.write(data);
-            os.flush();
-
-            int responseCode = conn.getResponseCode();
-            MatrixLogger.log("WEB-REST", "Chat POST Response Code: " + responseCode);
-        } catch (Exception e) {
-            MatrixLogger.log("WEB-REST", "Chat POST Warning: " + e.getMessage());
-        } finally {
-            try { if (os != null) os.close(); } catch (Exception ex) {}
-            try { if (is != null) is.close(); } catch (Exception ex) {}
-            try { if (conn != null) conn.close(); } catch (Exception ex) {}
-        }
-    }
 
 
     private static String quote(String input) {

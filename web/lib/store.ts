@@ -41,27 +41,14 @@ export interface PlayerProfile {
   error?: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  channel: 'MAP' | 'WORLD' | 'PRIVATE' | 'CLAN';
-  sender: string;
-  recipient?: string;
-  message: string;
-  timestamp: string;
-}
-
-export const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7-Day Retention Window
-
 // Safe module-level closure cache
 let matrixPlayersCache: PlayerProfile[] = [];
 let pendingInspectQueueCache: string[] = [];
-let matrixChatCache: ChatMessage[] = [];
-let pendingOutboundChatQueueCache: ChatMessage[] = [];
 let lastModClientActivityTimestamp = 0;
 
 /**
  * Touch the mod client activity timestamp whenever an active mod client
- * polls inspect targets or posts telemetry/chat payloads.
+ * polls inspect targets or posts profile payloads.
  */
 export async function touchModClientHeartbeat() {
   const now = Date.now();
@@ -201,141 +188,4 @@ export async function deletePlayerByName(name: string): Promise<boolean> {
   return false;
 }
 
-export async function getAllChatMessages(
-  channel?: string,
-  sinceTimestamp?: string,
-  limit: number = 1500
-): Promise<ChatMessage[]> {
-  let loaded: ChatMessage[] = matrixChatCache || [];
-  const data = await getFirestoreDoc<{ messages?: ChatMessage[] }>('telemetry_chat/live_stream');
-  if (data && Array.isArray(data.messages)) {
-    loaded = data.messages;
-    matrixChatCache = loaded;
-  }
-
-  const now = Date.now();
-  let results = loaded.filter((m) => {
-    const t = new Date(m.timestamp).getTime();
-    return !isNaN(t) && now - t < CHAT_RETENTION_MS;
-  });
-
-  if (sinceTimestamp) {
-    const sinceMs = new Date(sinceTimestamp).getTime();
-    if (!isNaN(sinceMs)) {
-      results = results.filter((m) => {
-        const msgMs = new Date(m.timestamp).getTime();
-        return !isNaN(msgMs) && msgMs > sinceMs;
-      });
-    }
-  }
-
-  if (channel && channel !== 'ALL') {
-    results = results.filter((m) => m.channel === channel.toUpperCase());
-  }
-
-  if (limit > 0 && results.length > limit) {
-    results = results.slice(0, limit);
-  }
-
-  return results;
-}
-
-export async function saveAllChatMessages(messages: ChatMessage[]) {
-  matrixChatCache = messages;
-  await setFirestoreDoc('telemetry_chat/live_stream', {
-    messages: JSON.parse(JSON.stringify(messages)),
-    lastUpdated: new Date().toISOString(),
-  });
-}
-
-export async function saveChatMessage(data: {
-  channel: string;
-  sender: string;
-  recipient?: string;
-  message: string;
-}): Promise<ChatMessage> {
-  let messages = await getAllChatMessages();
-
-  const validChannel = (['MAP', 'WORLD', 'PRIVATE', 'CLAN'].includes(data.channel?.toUpperCase())
-    ? data.channel.toUpperCase()
-    : 'MAP') as ChatMessage['channel'];
-
-  const cleanMessage = data.message.trim();
-  const cleanSender = data.sender || 'UNKNOWN';
-  const cleanRecipient = data.recipient ? data.recipient.trim() : undefined;
-
-  const nowMs = Date.now();
-  const duplicate = messages.find((m) => {
-    if (m.channel !== validChannel || m.sender !== cleanSender || m.message !== cleanMessage) {
-      return false;
-    }
-    if (cleanRecipient && m.recipient !== cleanRecipient) {
-      return false;
-    }
-    const msgTime = new Date(m.timestamp).getTime();
-    return !isNaN(msgTime) && nowMs - msgTime < 1500;
-  });
-
-  if (duplicate) {
-    return duplicate;
-  }
-
-  const msg: ChatMessage = {
-    id: `msg_${nowMs}_${Math.random().toString(36).substring(2, 7)}`,
-    channel: validChannel,
-    sender: cleanSender,
-    recipient: cleanRecipient,
-    message: cleanMessage,
-    timestamp: new Date().toISOString(),
-  };
-
-  messages.unshift(msg);
-
-  if (messages.length > 2000) {
-    messages = messages.slice(0, 2000);
-  }
-
-  await saveAllChatMessages(messages);
-  return msg;
-}
-
-export async function clearAllChatMessages() {
-  matrixChatCache = [];
-  pendingOutboundChatQueueCache = [];
-  await saveAllChatMessages([]);
-  await setFirestoreDoc('system/pending_chat', { queue: [] });
-}
-
-export async function queueOutboundChatMessage(data: {
-  channel: string;
-  recipient?: string;
-  message: string;
-}): Promise<ChatMessage> {
-  const msg = await saveChatMessage({
-    channel: data.channel,
-    sender: 'WEB_CONSOLE',
-    recipient: data.recipient,
-    message: data.message,
-  });
-
-  const docData = await getFirestoreDoc<{ queue?: ChatMessage[] }>('system/pending_chat');
-  let pending: ChatMessage[] = docData && Array.isArray(docData.queue) ? docData.queue : [];
-  pending.push(msg);
-  await setFirestoreDoc('system/pending_chat', { queue: pending });
-  return msg;
-}
-
-export async function popPendingOutboundChatMessages(): Promise<ChatMessage[]> {
-  let pending: ChatMessage[] = [];
-  const docData = await getFirestoreDoc<{ queue?: ChatMessage[] }>('system/pending_chat');
-  if (docData && Array.isArray(docData.queue) && docData.queue.length > 0) {
-    pending = docData.queue;
-    await setFirestoreDoc('system/pending_chat', { queue: [] });
-  }
-  if (pending.length === 0 && pendingOutboundChatQueueCache.length > 0) {
-    pending = [...pendingOutboundChatQueueCache];
-    pendingOutboundChatQueueCache = [];
-  }
-  return pending;
-}
 

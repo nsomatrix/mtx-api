@@ -32,18 +32,6 @@ export function ApiExplorer() {
       description: 'Queues a character name for remote profile inspection.',
       badgeColor: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
     },
-    {
-      method: 'GET',
-      path: '/api/v1/chat',
-      description: 'Fetches real-time chat message logs streamed from active clients.',
-      badgeColor: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/chat',
-      description: 'Streams live Public, Global, PM, and Clan chat telemetry from J2ME mod client.',
-      badgeColor: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-    },
   ];
 
   const copyUrl = async (path: string) => {

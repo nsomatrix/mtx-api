@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { UserCheck, MessageSquare, ArrowRight, Clock } from 'lucide-react';
+import { UserCheck, ArrowRight, Clock } from 'lucide-react';
 
 interface ModuleGridProps {
   targetCount: number;
@@ -20,17 +20,6 @@ export function ModuleGrid({ targetCount }: ModuleGridProps) {
       badgeText: `${targetCount} Profiles`,
       actionText: 'Launch Module',
       disabled: false,
-    },
-    {
-      id: 'connect',
-      title: 'Connect Telemetry Stream',
-      version: 'IN PROGRESS',
-      href: '',
-      icon: MessageSquare,
-      description: 'Monitor real-time Public, Global, PM Chat, and Clan chat logs streamed from active clients.',
-      badgeText: 'Telemetry Stream Paused',
-      actionText: 'In Progress',
-      disabled: true,
     },
   ];
 

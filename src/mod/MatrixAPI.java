@@ -96,16 +96,10 @@ public class MatrixAPI {
         if (packet == null) return;
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
-
-        byte cmd = packet.a;
-        if (cmd == -22 || cmd == -21 || cmd == -19 || cmd == -23 || cmd == -20 || cmd == -24) {
-            mod.chat.MatrixChat.parseInboundChatPacket(cmd, packet);
-        }
     }
 
     public static boolean handleNoticeDialog(String text) {
         MatrixLogger.logDialog(text);
-        mod.chat.MatrixChat.onChatReceived(text);
         return MatrixWebClient.handleNoticeDialog(text);
     }
 
