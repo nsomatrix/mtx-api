@@ -818,6 +818,31 @@ export function PlayerIOModule() {
 
             {/* Stats Panel */}
             <div className="bg-zinc-950 rounded-2xl border border-zinc-800 overflow-hidden divide-y divide-zinc-800/80 text-xs font-mono shadow-2xl">
+              {selectedPlayer.exp !== undefined && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/60 hover:bg-zinc-900 transition-colors">
+                  <span className="text-zinc-400 font-sans font-medium">Total EXP</span>
+                  <span className="text-emerald-400 font-extrabold"><AnimatedNumber value={selectedPlayer.exp} /></span>
+                </div>
+              )}
+
+              {selectedPlayer.str !== undefined && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/60 hover:bg-zinc-900 transition-colors">
+                  <span className="text-zinc-400 font-sans font-medium">STR / DEX / VIT / INT</span>
+                  <span className="text-amber-400 font-extrabold">
+                    {selectedPlayer.str} / {selectedPlayer.dex} / {selectedPlayer.vit} / {selectedPlayer.int}
+                  </span>
+                </div>
+              )}
+
+              {selectedPlayer.unassignedPotentials !== undefined && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/60 hover:bg-zinc-900 transition-colors">
+                  <span className="text-zinc-400 font-sans font-medium">Unassigned Points (Stat / Skill)</span>
+                  <span className="text-sky-400 font-extrabold">
+                    {selectedPlayer.unassignedPotentials} / {selectedPlayer.unassignedSkills}
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/60 hover:bg-zinc-900 transition-colors">
                 <span className="text-zinc-400 font-sans font-medium">Attack Min</span>
                 <span className="text-violet-400 font-extrabold"><AnimatedNumber value={selectedPlayer.attackMin} /></span>
@@ -974,21 +999,48 @@ export function PlayerIOModule() {
                   {currentEquip.map((item, idx) => {
                     const slotName = SLOT_NAMES[item.type] || 'Slot';
                     const style = getUpgradeStyle(item.upgrade || 0);
+                    const rarityLabel = item.rarityDesc || (item.rarity === 3 ? 'Violet' : item.rarity === 2 ? 'Yellow' : item.rarity === 1 ? 'Blue' : '');
+
                     return (
-                      <div key={idx} className="flex items-center justify-between p-3 hover:bg-zinc-900/60 transition-colors">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center space-x-2">
-                            <span className={`text-xs font-semibold ${style.title}`}>{item.name}</span>
-                            {item.upgrade > 0 && (
-                              <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${style.badge}`}>
-                                +{item.upgrade}
-                              </span>
-                            )}
+                      <div key={idx} className="p-3 hover:bg-zinc-900/60 transition-colors space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <span className={`text-xs font-semibold ${style.title}`}>{item.name}</span>
+                              {item.upgrade > 0 && (
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${style.badge}`}>
+                                  +{item.upgrade}
+                                </span>
+                              )}
+                              {rarityLabel && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  {rarityLabel}
+                                </span>
+                              )}
+                              {item.isBound && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                  Bound
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] font-mono text-zinc-500">
+                              {slotName} • Req Lvl {item.reqLevel}
+                              {item.sockets ? ` • ${item.sockets} Sockets` : ''}
+                              {item.expiresIn && item.expiresIn !== 'Permanent' ? ` • Exp: ${item.expiresIn}` : ''}
+                            </p>
                           </div>
-                          <p className="text-[10px] font-mono text-zinc-500">
-                            {slotName} • Req Lvl {item.reqLevel}
-                          </p>
                         </div>
+
+                        {item.options && item.options.length > 0 && (
+                          <div className="pt-2 border-t border-zinc-800/60 grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] font-mono text-emerald-400">
+                            {item.options.map((opt, oIdx) => (
+                              <div key={oIdx} className="flex items-center space-x-1">
+                                <span className="text-zinc-600">•</span>
+                                <span>{opt.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

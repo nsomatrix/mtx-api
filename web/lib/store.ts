@@ -1,5 +1,11 @@
 import { getFirestoreDoc, setFirestoreDoc } from './firestoreRest';
 
+export interface ItemOption {
+  id: number;
+  param: number;
+  text: string;
+}
+
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
   slotIndex: number;
@@ -7,6 +13,12 @@ export interface EquipmentItem {
   name: string;
   upgrade: number; // e.g. 12 (+12)
   reqLevel: number;
+  rarity?: number;
+  rarityDesc?: string;
+  isBound?: boolean;
+  sockets?: number;
+  expiresIn?: string;
+  options?: ItemOption[];
 }
 
 export interface PlayerProfile {
@@ -17,6 +29,7 @@ export interface PlayerProfile {
   gender?: string;
   clan?: string;
   giaToc?: string;
+  clanRank?: number;
   hp: number;
   maxHp: number;
   mp: number;
@@ -34,6 +47,14 @@ export interface PlayerProfile {
   counterStrike: number;
   antiChakra: number;
   antiChakraBack: number;
+  str?: number;
+  dex?: number;
+  vit?: number;
+  int?: number;
+  unassignedPotentials?: number;
+  unassignedSkills?: number;
+  exp?: number;
+  pk?: number;
   equipment?: EquipmentItem[];
   lastUpdated: string;
   status?: string;
@@ -143,6 +164,7 @@ export async function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { 
     gender: playerData.gender !== undefined ? playerData.gender : existing ? existing.gender : '',
     clan: playerData.clan !== undefined ? playerData.clan : playerData.giaToc !== undefined ? playerData.giaToc : existing ? existing.clan : '',
     giaToc: playerData.giaToc !== undefined ? playerData.giaToc : playerData.clan !== undefined ? playerData.clan : existing ? existing.giaToc : '',
+    clanRank: playerData.clanRank !== undefined ? playerData.clanRank : existing ? existing.clanRank : 0,
     hp: playerData.hp !== undefined ? playerData.hp : existing ? existing.hp : 0,
     maxHp: playerData.maxHp !== undefined ? playerData.maxHp : existing ? existing.maxHp : 0,
     mp: playerData.mp !== undefined ? playerData.mp : existing ? existing.mp : 0,
@@ -160,7 +182,15 @@ export async function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { 
     counterStrike: playerData.counterStrike !== undefined ? playerData.counterStrike : existing ? existing.counterStrike : 0,
     antiChakra: playerData.antiChakra !== undefined ? playerData.antiChakra : existing ? existing.antiChakra : 0,
     antiChakraBack: playerData.antiChakraBack !== undefined ? playerData.antiChakraBack : existing ? existing.antiChakraBack : 0,
-    equipment: playerData.equipment || (existing ? existing.equipment : []),
+    str: playerData.str !== undefined ? playerData.str : existing ? existing.str : 0,
+    dex: playerData.dex !== undefined ? playerData.dex : existing ? existing.dex : 0,
+    vit: playerData.vit !== undefined ? playerData.vit : existing ? existing.vit : 0,
+    int: playerData.int !== undefined ? playerData.int : existing ? existing.int : 0,
+    unassignedPotentials: playerData.unassignedPotentials !== undefined ? playerData.unassignedPotentials : existing ? existing.unassignedPotentials : 0,
+    unassignedSkills: playerData.unassignedSkills !== undefined ? playerData.unassignedSkills : existing ? existing.unassignedSkills : 0,
+    exp: playerData.exp !== undefined ? playerData.exp : existing ? existing.exp : 0,
+    pk: playerData.pk !== undefined ? playerData.pk : existing ? existing.pk : 0,
+    equipment: playerData.equipment || [],
     lastUpdated: new Date().toISOString(),
     status: isOffline ? 'OFFLINE' : playerData.status || 'ONLINE',
     online: isOffline ? false : playerData.online ?? true,

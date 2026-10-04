@@ -4,6 +4,7 @@ import aa;
 import bp;
 import ce;
 import dg;
+import dq;
 import mod.ui.MatrixUI;
 import mod.net.MatrixNet;
 import mod.log.MatrixLogger;
@@ -124,12 +125,34 @@ public class MatrixAPI {
         MatrixLogger.logPlayerInfo(player);
     }
 
-    public static boolean checkAndHandleWebInspect(bp player) {
+    public static boolean checkAndHandleWebInspect(final bp player) {
         if (player == null || player.ab == null) return false;
-        MatrixLogger.logPlayerInfo(player);
+
         if (MatrixNet.isPendingWebInspect(player.ab)) {
             MatrixLogger.log("API", "Remote Web Inspect fulfilled for target: \"" + player.ab + "\". Suppressing in-game UI.");
             MatrixNet.markWebFulfilled(player.ab);
+
+            // Dispatch Packet 94 to request item option stats for all equipment slots
+            try {
+                if (player.aD != null) {
+                    for (int i = 0; i < player.aD.length; i++) {
+                        if (player.aD[i] != null) {
+                            dq.a().d(player.p, i);
+                        }
+                    }
+                }
+            } catch (Exception e) {}
+
+            // Wait 400ms for incoming Packet 94 option detail packets to unpack completely
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        Thread.sleep(400);
+                    } catch (Exception e) {}
+                    MatrixLogger.logPlayerInfo(player);
+                }
+            }).start();
+
             try {
                 if (dg.n() != null) {
                     dg.n().v();
@@ -137,6 +160,8 @@ public class MatrixAPI {
             } catch (Exception e) {}
             return true;
         }
+
+        MatrixLogger.logPlayerInfo(player);
         return false;
     }
 

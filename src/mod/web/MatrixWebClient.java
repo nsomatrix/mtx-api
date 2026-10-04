@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.io.InputStream;
 import bp;
 import by;
+import cg;
 import df;
 import mod.log.MatrixLogger;
 
@@ -329,6 +330,7 @@ public class MatrixWebClient {
         String clanName = (player.ac != null && player.ac.trim().length() > 0) ? player.ac.trim() : "";
         sb.append("\"clan\":").append(quote(clanName)).append(",");
         sb.append("\"giaToc\":").append(quote(clanName)).append(",");
+        sb.append("\"clanRank\":").append(player.ad).append(",");
         sb.append("\"hp\":").append(player.z).append(",");
         sb.append("\"maxHp\":").append(player.B).append(",");
         sb.append("\"mp\":").append(player.x).append(",");
@@ -346,6 +348,14 @@ public class MatrixWebClient {
         sb.append("\"counterStrike\":").append(player.aO).append(",");
         sb.append("\"antiChakra\":").append(player.aP).append(",");
         sb.append("\"antiChakraBack\":").append(player.aQ).append(",");
+        sb.append("\"str\":").append(player.F).append(",");
+        sb.append("\"dex\":").append(player.G).append(",");
+        sb.append("\"vit\":").append(player.H).append(",");
+        sb.append("\"int\":").append(player.I).append(",");
+        sb.append("\"unassignedPotentials\":").append(player.W).append(",");
+        sb.append("\"unassignedSkills\":").append(player.X).append(",");
+        sb.append("\"exp\":").append(player.E).append(",");
+        sb.append("\"pk\":").append(player.at).append(",");
         sb.append("\"equipment\":").append(buildEquipmentJson(player));
         sb.append("}");
         return sb.toString();
@@ -363,18 +373,7 @@ public class MatrixWebClient {
                 if (item != null && item.b != null) {
                     if (!first) sb.append(",");
                     first = false;
-                    String itemName = item.b.d != null ? item.b.d : "Equipment";
-                    int itemType = item.b.b;
-                    int upgrade = item.j;
-                    int reqLevel = item.b.f;
-                    sb.append("{");
-                    sb.append("\"tab\":1,");
-                    sb.append("\"slotIndex\":").append(i).append(",");
-                    sb.append("\"type\":").append(itemType).append(",");
-                    sb.append("\"name\":").append(quote(itemName)).append(",");
-                    sb.append("\"upgrade\":").append(upgrade).append(",");
-                    sb.append("\"reqLevel\":").append(reqLevel);
-                    sb.append("}");
+                    sb.append(buildSingleItemJson(item, 1, i));
                 }
             }
         }
@@ -384,19 +383,66 @@ public class MatrixWebClient {
                 if (item != null && item.b != null) {
                     if (!first) sb.append(",");
                     first = false;
-                    String itemName = item.b.d != null ? item.b.d : "Equipment";
-                    int itemType = item.b.b;
-                    int upgrade = item.j;
-                    int reqLevel = item.b.f;
-                    sb.append("{");
-                    sb.append("\"tab\":2,");
-                    sb.append("\"slotIndex\":").append(i).append(",");
-                    sb.append("\"type\":").append(itemType).append(",");
-                    sb.append("\"name\":").append(quote(itemName)).append(",");
-                    sb.append("\"upgrade\":").append(upgrade).append(",");
-                    sb.append("\"reqLevel\":").append(reqLevel);
-                    sb.append("}");
+                    sb.append(buildSingleItemJson(item, 2, i));
                 }
+            }
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private static String buildSingleItemJson(by item, int tab, int slotIndex) {
+        String itemName = item.b.d != null ? item.b.d : "Equipment";
+        int itemType = item.b.b;
+        int upgrade = item.j;
+        int reqLevel = item.b.f;
+        int rarityTier = item.i;
+        String rarityDesc = "";
+        switch (rarityTier) {
+            case 0: rarityDesc = "White"; break;
+            case 1: rarityDesc = "Blue"; break;
+            case 2: rarityDesc = "Yellow"; break;
+            case 3: rarityDesc = "Violet"; break;
+            default: rarityDesc = (item.b.e != null ? item.b.e : ""); break;
+        }
+        boolean isBound = (item.k > 0 || item.p);
+        int sockets = item.n;
+        String expiresIn = (item.g > 0) ? item.f() : "Permanent";
+
+        StringBuffer sb = new StringBuffer("{");
+        sb.append("\"tab\":").append(tab).append(",");
+        sb.append("\"slotIndex\":").append(slotIndex).append(",");
+        sb.append("\"type\":").append(itemType).append(",");
+        sb.append("\"name\":").append(quote(itemName)).append(",");
+        sb.append("\"upgrade\":").append(upgrade).append(",");
+        sb.append("\"reqLevel\":").append(reqLevel).append(",");
+        sb.append("\"rarity\":").append(rarityTier).append(",");
+        sb.append("\"rarityDesc\":").append(quote(rarityDesc)).append(",");
+        sb.append("\"isBound\":").append(isBound ? "true" : "false").append(",");
+        sb.append("\"sockets\":").append(sockets).append(",");
+        sb.append("\"expiresIn\":").append(quote(expiresIn)).append(",");
+        sb.append("\"options\":").append(buildItemOptionsJson(item));
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String buildItemOptionsJson(by item) {
+        if (item == null || item.c == null || item.c.size() == 0) {
+            return "[]";
+        }
+        StringBuffer sb = new StringBuffer("[");
+        boolean first = true;
+        for (int i = 0; i < item.c.size(); i++) {
+            cg opt = (cg) item.c.elementAt(i);
+            if (opt != null && opt.c != null) {
+                if (!first) sb.append(",");
+                first = false;
+                sb.append("{");
+                sb.append("\"id\":").append(opt.c.a).append(",");
+                sb.append("\"param\":").append(opt.a).append(",");
+                String optText = opt.a();
+                sb.append("\"text\":").append(quote(optText));
+                sb.append("}");
             }
         }
         sb.append("]");
