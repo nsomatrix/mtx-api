@@ -95,6 +95,13 @@ public class Patcher {
             aeMethod2.insertBefore("{ if ($1 != null && $1.length() > 0 && mod.MatrixAPI.handleNoticeDialog($1)) return; }");
             aeClass.writeFile(outputPath);
 
+            // 8. Hook Private Messages in bg.a(String, String, String)
+            System.out.println("[MTX-API Patcher] Injecting Private Message Listener into bg.a(String, String, String)...");
+            CtClass bgClass = pool.get("bg");
+            CtMethod pmMethod = bgClass.getDeclaredMethod("a", new CtClass[]{ pool.get("java.lang.String"), pool.get("java.lang.String"), pool.get("java.lang.String") });
+            pmMethod.insertBefore("{ mod.MatrixAPI.onPrivateMessageReceived($1, $3); }");
+            bgClass.writeFile(outputPath);
+
             System.out.println("[MTX-API Patcher] MatrixAPI Instrumentation successfully completed!");
         } catch (Exception e) {
             System.err.println("[MTX-API Patcher] Patching Failed!");

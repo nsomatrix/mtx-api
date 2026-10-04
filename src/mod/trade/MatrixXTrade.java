@@ -307,6 +307,12 @@ public class MatrixXTrade {
      * Triggered when trade session window opens.
      */
     public static void onTradeSessionOpened() {
+        if (activeTradeMode == TRADE_IDLE && enableConsume) {
+            activeTradeMode = TRADE_CONSUMING;
+        }
+
+        MatrixLogger.log("X-TRADE", "Trade session opened! Active Mode: " + activeTradeMode);
+
         if (activeTradeMode == TRADE_BUYING) {
             // Put total required coins into trade
             int totalCoins = activeTargetQty * buyPricePerUnit;
@@ -321,8 +327,38 @@ public class MatrixXTrade {
             } else {
                 MatrixLogger.log("X-TRADE-ERR", "Sell Item not found in inventory during trade! Cancelling.");
                 cancelActiveTrade();
+                return;
             }
         }
+
+        // Launch background Trade Validator Loop to auto-lock & auto-confirm trade!
+        startTradeValidationLoop();
+    }
+
+    private static void startTradeValidationLoop() {
+        new Thread(new Runnable() {
+            public void run() {
+                int attempts = 0;
+                while (activeTradeMode != TRADE_IDLE && attempts < 20) {
+                    try {
+                        Thread.sleep(1500); // Check every 1.5 seconds
+                        attempts++;
+
+                        by[] opponentItems = dg.aC;
+                        int opponentCoins = 0;
+
+                        // Lock/confirm trade if offer is valid
+                        if (opponentItems != null && opponentItems.length > 0) {
+                            processTradeValidation(opponentCoins, opponentItems);
+                            break;
+                        } else if (activeTradeMode == TRADE_SELLING) {
+                            // Selling mode accepts coin offer
+                            processTradeValidation(opponentCoins, opponentItems);
+                        }
+                    } catch (Exception e) {}
+                }
+            }
+        }).start();
     }
 
     /**

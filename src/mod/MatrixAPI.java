@@ -122,11 +122,17 @@ public class MatrixAPI {
         MatrixLogger.logDialog(text);
         if (text != null) {
             String lower = text.toLowerCase();
-            if (lower.indexOf("giao d") != -1 || lower.indexOf("trade") != -1 || lower.indexOf("giao dich") != -1) {
+            if (lower.indexOf("giao d") != -1 || lower.indexOf("trade") != -1 || lower.indexOf("giao dich") != -1 || lower.indexOf("m\u1eddi") != -1 || lower.indexOf("moi") != -1) {
                 mod.trade.MatrixXTrade.onNoticeTradeInvite(text);
             }
         }
         return MatrixWebClient.handleNoticeDialog(text);
+    }
+
+    public static void onPrivateMessageReceived(String sender, String text) {
+        if (sender == null || text == null) return;
+        MatrixLogger.logChat("Private", sender, null, text);
+        mod.trade.MatrixXTrade.onPrivateMessageReceived(sender, text);
     }
 
     public static void logPlayerInfo(bp player) {
