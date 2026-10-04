@@ -96,6 +96,18 @@ public class MatrixAPI {
         if (packet == null) return;
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
+        
+        // Auto-dump items when game data resources packet arrives (Packet -28 or -29)
+        if (packet.a == -28 || packet.a == -29) {
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        Thread.sleep(3000); // Wait 3s for game engine to unpack e.a table
+                        mod.item.MatrixItemExporter.dumpItemsToConsole();
+                    } catch (Exception e) {}
+                }
+            }).start();
+        }
     }
 
 

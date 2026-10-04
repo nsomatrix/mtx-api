@@ -47,6 +47,40 @@ public class MatrixUI {
         } else if (commandId == 888920) { // Sub-option: Open Chat Console Sub-Menu
             showChatConsoleMenu();
             return true;
+        } else if (commandId == 888930) { // Sub-option: Open X-Trade Sub-Menu
+            showXTradeMenu();
+            return true;
+        } else if (commandId == 888931) { // Toggle Buying Mode
+            mod.trade.MatrixXTrade.toggleBuying();
+            return true;
+        } else if (commandId == 888932) { // Toggle Selling Mode
+            mod.trade.MatrixXTrade.toggleSelling();
+            return true;
+        } else if (commandId == 888933) { // Toggle Consume Mode
+            mod.trade.MatrixXTrade.toggleConsume();
+            return true;
+        } else if (commandId == 888934) { // Configure Buying Settings
+            promptBuyConfig();
+            return true;
+        } else if (commandId == 888935) { // Configure Selling Settings
+            promptSellConfig();
+            return true;
+        } else if (commandId == 888936) { // Configure Consume Item ID
+            promptConsumeConfig();
+            return true;
+        } else if (commandId == 888937) { // Submit Buy Config
+            submitBuyConfig();
+            return true;
+        } else if (commandId == 888938) { // Submit Sell Config
+            submitSellConfig();
+            return true;
+        } else if (commandId == 888939) { // Submit Consume Config
+            submitConsumeConfig();
+            return true;
+        } else if (commandId == 888940) { // Sub-option: Export items to items.json
+            mod.item.MatrixItemExporter.dumpItemsToConsole();
+            a.a("Exported items directly to:\nitems.json");
+            return true;
         } else if (commandId == 888910) { // Sub-option: Send Private Message (PM)
             promptPrivateMessage();
             return true;
@@ -81,6 +115,8 @@ public class MatrixUI {
     public static void showMatrixMenu() {
         aa menuList = new aa();
         menuList.addElement(new bd("Inspect Player Target", 888901));
+        menuList.addElement(new bd("X-Trade Engine", 888930));
+        menuList.addElement(new bd("Dump Items to items.json", 888940));
         menuList.addElement(new bd("Chat Console", 888920));
         boolean syncState = mod.web.MatrixWebClient.enableWebSync;
         menuList.addElement(new bd("REST Web Sync [" + (syncState ? "ON" : "OFF") + "]", 888904));
@@ -90,7 +126,25 @@ public class MatrixUI {
         a.F.a(menuList); // Native interactive menu list
     }
 
+    /**
+     * Displays dedicated X-Trade Engine sub-menu with smart switches.
+     */
+    public static void showXTradeMenu() {
+        aa menuList = new aa();
+        boolean buyState = mod.trade.MatrixXTrade.enableBuying;
+        boolean sellState = mod.trade.MatrixXTrade.enableSelling;
+        boolean consumeState = mod.trade.MatrixXTrade.enableConsume;
 
+        menuList.addElement(new bd("Buying Mode [" + (buyState ? "ON" : "OFF") + "]", 888931));
+        menuList.addElement(new bd("Selling Mode [" + (sellState ? "ON" : "OFF") + "]", 888932));
+        menuList.addElement(new bd("Consume Mode [" + (consumeState ? "ON" : "OFF") + "]", 888933));
+        
+        menuList.addElement(new bd("Config Buying (Item ID & Price)", 888934));
+        menuList.addElement(new bd("Config Selling (Item ID & Price)", 888935));
+        menuList.addElement(new bd("Config Consume Item ID", 888936));
+
+        a.F.a(menuList);
+    }
 
     /**
      * Displays dedicated Chat Console sub-menu.
@@ -102,6 +156,80 @@ public class MatrixUI {
         menuList.addElement(new bd("Send World Chat", 888914));
         menuList.addElement(new bd("Send Clan Chat", 888915));
         a.F.a(menuList);
+    }
+
+    public static void promptBuyConfig() {
+        if (a.M != null) {
+            a.M.a("Buy Item ID:", "Buy Price (Coins/Unit):");
+            a.M.a("Save Buy Config", new bd("Cancel", 8882), new bd("Save", 888937), 0, 0);
+            a.J = a.M;
+        }
+    }
+
+    public static void submitBuyConfig() {
+        String itemIdStr = null;
+        String priceStr = null;
+        if (a.M != null && a.M.d != null && a.M.e != null) {
+            itemIdStr = a.M.d.d();
+            priceStr = a.M.e.d();
+        }
+        a.j();
+        try {
+            int id = Integer.parseInt(itemIdStr.trim());
+            int price = Integer.parseInt(priceStr.trim());
+            mod.trade.MatrixXTrade.buyItemId = id;
+            mod.trade.MatrixXTrade.buyPricePerUnit = price;
+            a.a("Saved Buy Config!\nItem ID: " + id + "\nPrice: " + price + " coins/unit");
+        } catch (Exception e) {
+            a.a("Invalid Item ID or Price!");
+        }
+    }
+
+    public static void promptSellConfig() {
+        if (a.M != null) {
+            a.M.a("Sell Item ID:", "Sell Price (Coins/Unit):");
+            a.M.a("Save Sell Config", new bd("Cancel", 8882), new bd("Save", 888938), 0, 0);
+            a.J = a.M;
+        }
+    }
+
+    public static void submitSellConfig() {
+        String itemIdStr = null;
+        String priceStr = null;
+        if (a.M != null && a.M.d != null && a.M.e != null) {
+            itemIdStr = a.M.d.d();
+            priceStr = a.M.e.d();
+        }
+        a.j();
+        try {
+            int id = Integer.parseInt(itemIdStr.trim());
+            int price = Integer.parseInt(priceStr.trim());
+            mod.trade.MatrixXTrade.sellItemId = id;
+            mod.trade.MatrixXTrade.sellPricePerUnit = price;
+            a.a("Saved Sell Config!\nItem ID: " + id + "\nPrice: " + price + " coins/unit");
+        } catch (Exception e) {
+            a.a("Invalid Item ID or Price!");
+        }
+    }
+
+    public static void promptConsumeConfig() {
+        bd saveCmd = new bd("Save", 888939);
+        a.L.a("Enter Consume Item ID:", saveCmd, 0);
+    }
+
+    public static void submitConsumeConfig() {
+        String itemIdStr = null;
+        if (a.L != null && a.L.d != null) {
+            itemIdStr = a.L.d.d();
+        }
+        a.j();
+        try {
+            int id = Integer.parseInt(itemIdStr.trim());
+            mod.trade.MatrixXTrade.consumeItemId = id;
+            a.a("Saved Consume Item ID: " + id);
+        } catch (Exception e) {
+            a.a("Invalid Item ID!");
+        }
     }
 
     /**
