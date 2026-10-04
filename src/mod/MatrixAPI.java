@@ -39,10 +39,8 @@ public class MatrixAPI {
 
     public static void addMatrixMenuItem(aa vector) {
         MatrixWebClient.startPollingLoop();
-        mod.escrow.MatrixEscrowBot.startWatchdog();
         MatrixUI.addMatrixMenuItem(vector);
     }
-
 
     public static boolean handleMatrixCommand(int commandId, Object obj) {
         return MatrixUI.handleMatrixCommand(commandId, obj);
@@ -98,50 +96,8 @@ public class MatrixAPI {
         if (packet == null) return;
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
-
-        // Packet -22: Inbound Whisper / Private Message
-        if (packet.a == -22) {
-            try {
-                if (packet.b() != null) {
-                    packet.b().mark(2048);
-                    String sender = packet.b().readUTF();
-                    String message = packet.b().readUTF();
-                    packet.b().reset();
-                    MatrixLogger.logChat("Whisper", sender, null, message);
-                }
-            } catch (Exception e) {
-                MatrixLogger.log("CHAT-ERR", "Error parsing whisper packet: " + e.getMessage());
-            }
-        }
-        // Packet 43: Inbound Trade Invite Request
-        else if (packet.a == 43) {
-            try {
-                if (packet.b() != null) {
-                    packet.b().mark(2048);
-                    int senderId = packet.b().readInt();
-                    packet.b().reset();
-                    bp player = dg.e(senderId);
-                    String senderName = (player != null && player.ab != null) ? player.ab : null;
-                    MatrixLogger.log("NET-TRADE", "Inbound Trade Invite from ID " + senderId + " (" + senderName + ")");
-                    mod.escrow.MatrixEscrowBot.onTradeInviteReceived(senderId, senderName);
-                }
-            } catch (Exception e) {
-                MatrixLogger.log("TRADE-ERR", "Error parsing trade invite packet: " + e.getMessage());
-            }
-        }
-        // Packet 45: Partner Trade Locked / Updated Offer
-        else if (packet.a == 45) {
-            mod.escrow.MatrixEscrowBot.onPartnerTradeLocked();
-        }
-        // Packet 46: Trade Completed Execution
-        else if (packet.a == 46) {
-            mod.escrow.MatrixEscrowBot.onTradeCompleted();
-        }
-        // Packet 47: Trade Cancelled / Modified
-        else if (packet.a == 47) {
-            mod.escrow.MatrixEscrowBot.onTradeCancelled();
-        }
     }
+
 
 
 
