@@ -43,12 +43,6 @@ public class MatrixLogger {
         } else {
             log("CHAT", "[" + channel + "] " + sender + ": \"" + message + "\"");
         }
-        // Dispatch to X-Trade Engine if Private Message
-        try {
-            if (channel != null && (channel.equalsIgnoreCase("Private") || channel.equalsIgnoreCase("Whisper") || channel.equalsIgnoreCase("PM"))) {
-                mod.trade.MatrixXTrade.onPrivateMessageReceived(sender, message);
-            }
-        } catch (Exception e) {}
     }
 
 
