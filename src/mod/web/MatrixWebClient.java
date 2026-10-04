@@ -133,6 +133,9 @@ public class MatrixWebClient {
                             }
                         }
                         if (!exists) {
+                            if (activeLiveTargets.size() >= 50) {
+                                activeLiveTargets.removeElementAt(0); // Evict oldest target to keep memory footprint low
+                            }
                             activeLiveTargets.addElement(cleanName);
                         }
                         MatrixLogger.log("WEB-REST", "Added Multi-Target (" + activeLiveTargets.size() + " active): \"" + cleanName + "\"");
@@ -154,8 +157,20 @@ public class MatrixWebClient {
         if (json == null) return null;
         int idx = json.indexOf("\"target\":");
         if (idx == -1) return null;
-        int startQuote = json.indexOf("\"", idx + 9);
-        if (startQuote == -1) return null;
+        int colonIdx = idx + 9;
+        // Skip whitespace after "target":
+        while (colonIdx < json.length()) {
+            char c = json.charAt(colonIdx);
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+                colonIdx++;
+            } else {
+                break;
+            }
+        }
+        if (colonIdx >= json.length() || json.charAt(colonIdx) != '"') {
+            return null; // Value is null, number, or boolean (not a quoted string)
+        }
+        int startQuote = colonIdx;
         int endQuote = json.indexOf("\"", startQuote + 1);
         if (endQuote == -1) return null;
         String val = json.substring(startQuote + 1, endQuote);
@@ -394,13 +409,9 @@ public class MatrixWebClient {
     public static boolean handleNoticeDialog(String text) {
         if (text == null || text.trim().length() == 0) return false;
 
-        String target = mod.net.MatrixNet.lastRequestedTarget;
+        String target = mod.net.MatrixNet.findRecentTargetForNotice(text);
 
-
-        long reqTime = mod.net.MatrixNet.lastRequestedTime;
-        long now = System.currentTimeMillis();
-
-        boolean isRecentTarget = target != null && (now - reqTime < 15000);
+        boolean isRecentTarget = target != null;
         if (isRecentTarget) {
             MatrixLogger.log("WEB-REST", "Inspecting Notice Text received within 15s for \"" + target + "\": [" + text + "]");
         }

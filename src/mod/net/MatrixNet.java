@@ -12,6 +12,7 @@ public class MatrixNet {
     public static long lastRequestedTime = 0;
 
     private static Hashtable pendingWebInspects = new Hashtable();
+    private static Hashtable recentRequestedTargets = new Hashtable();
     private static String lastWebFulfilledTarget = null;
     private static long lastWebFulfilledTime = 0;
 
@@ -20,6 +21,47 @@ public class MatrixNet {
             String key = playerName.trim().toLowerCase();
             pendingWebInspects.put(key, Long.valueOf(System.currentTimeMillis()));
         }
+    }
+
+    public static synchronized String findRecentTargetForNotice(String text) {
+        long now = System.currentTimeMillis();
+        String cleanText = (text != null) ? text.toLowerCase() : "";
+
+        java.util.Enumeration keys = recentRequestedTargets.keys();
+        String bestMatch = null;
+        long oldestPendingTime = Long.MAX_VALUE;
+
+        while (keys.hasMoreElements()) {
+            String nameKey = (String) keys.nextElement();
+            Long timeObj = (Long) recentRequestedTargets.get(nameKey);
+            if (timeObj != null) {
+                long t = timeObj.longValue();
+                if (now - t > 15000) {
+                    recentRequestedTargets.remove(nameKey); // Expired
+                    continue;
+                }
+                // Case 1: Notice text explicitly contains the target player name
+                if (cleanText.length() > 0 && cleanText.indexOf(nameKey) != -1) {
+                    return nameKey;
+                }
+                // Case 2: Track the oldest unfulfilled pending web inspect request
+                if (isPendingWebInspect(nameKey) && t < oldestPendingTime) {
+                    oldestPendingTime = t;
+                    bestMatch = nameKey;
+                }
+            }
+        }
+
+        if (bestMatch != null) {
+            return bestMatch;
+        }
+
+        // Fallback to lastRequestedTarget if within 15s window
+        if (lastRequestedTarget != null && (now - lastRequestedTime < 15000)) {
+            return lastRequestedTarget;
+        }
+
+        return null;
     }
 
     public static synchronized boolean isPendingWebInspect(String playerName) {
@@ -48,6 +90,7 @@ public class MatrixNet {
         if (playerName != null && playerName.trim().length() > 0) {
             String key = playerName.trim().toLowerCase();
             pendingWebInspects.remove(key);
+            recentRequestedTargets.remove(key);
             lastWebFulfilledTarget = key;
             lastWebFulfilledTime = System.currentTimeMillis();
         }
@@ -57,6 +100,7 @@ public class MatrixNet {
         if (playerName != null && playerName.trim().length() > 0) {
             String key = playerName.trim().toLowerCase();
             pendingWebInspects.remove(key);
+            recentRequestedTargets.remove(key);
             if (key.equalsIgnoreCase(lastWebFulfilledTarget)) {
                 lastWebFulfilledTarget = null;
                 lastWebFulfilledTime = 0;
@@ -77,6 +121,7 @@ public class MatrixNet {
             isWebTriggeredInspect = fromWeb;
             lastRequestedTarget = cleanTarget;
             lastRequestedTime = System.currentTimeMillis();
+            recentRequestedTargets.put(cleanTarget.toLowerCase(), Long.valueOf(lastRequestedTime));
 
             if (fromWeb) {
                 markWebInspect(cleanTarget);
