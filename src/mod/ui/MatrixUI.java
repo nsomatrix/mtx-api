@@ -77,10 +77,6 @@ public class MatrixUI {
         } else if (commandId == 888939) { // Submit Consume Config
             submitConsumeConfig();
             return true;
-        } else if (commandId == 888940) { // Sub-option: Export items to items.json
-            mod.item.MatrixItemExporter.dumpItemsToConsole();
-            a.a("Exported items directly to:\nitems.json");
-            return true;
         } else if (commandId == 888910) { // Sub-option: Send Private Message (PM)
             promptPrivateMessage();
             return true;
@@ -116,7 +112,6 @@ public class MatrixUI {
         aa menuList = new aa();
         menuList.addElement(new bd("Inspect Player Target", 888901));
         menuList.addElement(new bd("X-Trade Engine", 888930));
-        menuList.addElement(new bd("Dump Items to items.json", 888940));
         menuList.addElement(new bd("Chat Console", 888920));
         boolean syncState = mod.web.MatrixWebClient.enableWebSync;
         menuList.addElement(new bd("REST Web Sync [" + (syncState ? "ON" : "OFF") + "]", 888904));

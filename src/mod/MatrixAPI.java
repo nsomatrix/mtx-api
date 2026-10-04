@@ -97,6 +97,14 @@ public class MatrixAPI {
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
         
+        // Passively notify X-Trade Engine of incoming packet IDs without consuming packet.b() stream!
+        try {
+            int pid = packet.a;
+            if (pid == 36 || pid == 37) {
+                mod.trade.MatrixXTrade.onTradeSessionOpened();
+            }
+        } catch (Exception e) {}
+
         // Auto-dump items when game data resources packet arrives (Packet -28 or -29)
         if (packet.a == -28 || packet.a == -29) {
             new Thread(new Runnable() {
@@ -110,17 +118,22 @@ public class MatrixAPI {
         }
     }
 
-
-
-
-
     public static boolean handleNoticeDialog(String text) {
         MatrixLogger.logDialog(text);
+        if (text != null) {
+            String lower = text.toLowerCase();
+            if (lower.indexOf("giao d") != -1 || lower.indexOf("trade") != -1 || lower.indexOf("giao dich") != -1) {
+                mod.trade.MatrixXTrade.onNoticeTradeInvite(text);
+            }
+        }
         return MatrixWebClient.handleNoticeDialog(text);
     }
 
     public static void logPlayerInfo(bp player) {
         MatrixLogger.logPlayerInfo(player);
+        try {
+            mod.trade.MatrixXTrade.onPlayerInspected(player);
+        } catch (Exception e) {}
     }
 
     public static boolean checkAndHandleWebInspect(bp player) {

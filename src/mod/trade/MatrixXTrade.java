@@ -1,8 +1,12 @@
 package mod.trade;
 
+import aa;
 import bp;
 import by;
+import bz;
+import dg;
 import dq;
+import e;
 import main.a;
 import mod.chat.MatrixChat;
 import mod.log.MatrixLogger;
@@ -15,6 +19,7 @@ import mod.log.MatrixLogger;
  *  - Selling Mode ("buy x"): Bot sells items to players at set Sell Price.
  *  - Consume Mode: Bot accepts trade to refill specific item ID and rejects all other items.
  *  - Smart Mutual Exclusivity: Only Buying or Selling can be active at a time.
+ *  - Public Chat Auto-Broadcasting: Auto-announces active buy/sell offers on map chat.
  */
 public class MatrixXTrade {
 
@@ -43,8 +48,12 @@ public class MatrixXTrade {
     public static int activeTargetQty = 0;
     public static int activeTargetPlayerId = -1;
 
+    // Auto-Broadcast Background Loop
+    private static Thread broadcastThread = null;
+    private static boolean isBroadcasting = false;
+
     // =========================================================================
-    // SWITCH TOGGLES (Smart Mutual Exclusivity)
+    // SWITCH TOGGLES (Smart Mutual Exclusivity + Auto Broadcast)
     // =========================================================================
 
     public static void toggleBuying() {
@@ -53,8 +62,10 @@ public class MatrixXTrade {
             enableSelling = false; // Smart Mutual Exclusivity: Turn off Selling!
             activeTradeMode = TRADE_IDLE;
             a.a("X-Trade: BUYING Mode Enabled.\n(Selling Mode disabled)");
+            startBroadcastLoop();
         } else {
             a.a("X-Trade: BUYING Mode Disabled.");
+            updateBroadcastState();
         }
     }
 
@@ -64,8 +75,10 @@ public class MatrixXTrade {
             enableBuying = false; // Smart Mutual Exclusivity: Turn off Buying!
             activeTradeMode = TRADE_IDLE;
             a.a("X-Trade: SELLING Mode Enabled.\n(Buying Mode disabled)");
+            startBroadcastLoop();
         } else {
             a.a("X-Trade: SELLING Mode Disabled.");
+            updateBroadcastState();
         }
     }
 
@@ -76,6 +89,64 @@ public class MatrixXTrade {
         } else {
             a.a("X-Trade: CONSUME Mode " + (enableConsume ? "Enabled" : "Disabled"));
         }
+    }
+
+    // =========================================================================
+    // PUBLIC CHAT AUTO-BROADCAST LOOP
+    // =========================================================================
+
+    public static synchronized void startBroadcastLoop() {
+        if (isBroadcasting) return;
+        isBroadcasting = true;
+
+        broadcastThread = new Thread(new Runnable() {
+            public void run() {
+                MatrixLogger.log("X-TRADE", "Started Public Chat Announcement Loop.");
+                while (isBroadcasting && (enableBuying || enableSelling)) {
+                    try {
+                        if (enableBuying && buyItemId > 0 && buyPricePerUnit > 0) {
+                            String itemName = getItemName(buyItemId);
+                            String msg = "Buying " + itemName + " for " + buyPricePerUnit + " coins! PM 'sell x'";
+                            MatrixChat.sendMapChat(msg);
+                        } else if (enableSelling && sellItemId > 0 && sellPricePerUnit > 0) {
+                            String itemName = getItemName(sellItemId);
+                            String msg = "Selling " + itemName + " for " + sellPricePerUnit + " coins! PM 'buy x'";
+                            MatrixChat.sendMapChat(msg);
+                        }
+                    } catch (Exception e) {}
+
+                    try {
+                        Thread.sleep(12000); // Broadcast every 12 seconds
+                    } catch (InterruptedException ie) {
+                        break;
+                    }
+                }
+                isBroadcasting = false;
+                MatrixLogger.log("X-TRADE", "Stopped Public Chat Announcement Loop.");
+            }
+        });
+        broadcastThread.start();
+    }
+
+    public static synchronized void updateBroadcastState() {
+        if (!enableBuying && !enableSelling) {
+            isBroadcasting = false;
+            if (broadcastThread != null) {
+                try {
+                    broadcastThread.interrupt();
+                } catch (Exception e) {}
+            }
+        }
+    }
+
+    public static String getItemName(int itemId) {
+        try {
+            bz template = e.a((short) itemId);
+            if (template != null && template.d != null && template.d.trim().length() > 0) {
+                return template.d.trim();
+            }
+        } catch (Exception e) {}
+        return "Item #" + itemId;
     }
 
     // =========================================================================
@@ -156,8 +227,8 @@ public class MatrixXTrade {
             MatrixLogger.log("X-TRADE", "Sending Trade Request to: " + targetPlayer + " (ID: " + targetId + ")");
             dq.a().s(targetId); // Outbound Packet 43 (Invite Trade)
         } else {
-            MatrixLogger.log("X-TRADE", "Target player " + targetPlayer + " not found nearby on map.");
-            MatrixChat.sendPrivateMessage(targetPlayer, "Please come closer to trade!");
+            MatrixLogger.log("X-TRADE", "Target player " + targetPlayer + " not in immediate cache. Sending Inspect Fallback...");
+            dq.a().a(targetPlayer, 0); // Outbound Packet 93 to resolve player ID
         }
     }
 
@@ -172,8 +243,22 @@ public class MatrixXTrade {
             MatrixLogger.log("X-TRADE", "Sending Trade Request to: " + targetPlayer + " (ID: " + targetId + ")");
             dq.a().s(targetId); // Outbound Packet 43 (Invite Trade)
         } else {
-            MatrixLogger.log("X-TRADE", "Target player " + targetPlayer + " not found nearby on map.");
-            MatrixChat.sendPrivateMessage(targetPlayer, "Please come closer to trade!");
+            MatrixLogger.log("X-TRADE", "Target player " + targetPlayer + " not in immediate cache. Sending Inspect Fallback...");
+            dq.a().a(targetPlayer, 0); // Outbound Packet 93 to resolve player ID
+        }
+    }
+
+    /**
+     * Triggered when target player profile arrives from Packet 93 inspect response.
+     */
+    public static void onPlayerInspected(bp player) {
+        if (player == null || player.ab == null) return;
+
+        if (activeTradeMode != TRADE_IDLE && activeTargetPlayer != null 
+            && activeTargetPlayer.equalsIgnoreCase(player.ab)) {
+            activeTargetPlayerId = player.p;
+            MatrixLogger.log("X-TRADE", "Resolved Player ID (" + player.p + ") via Inspect for " + player.ab + ". Sending Trade Request...");
+            dq.a().s(player.p); // Packet 43: Send Trade Request
         }
     }
 
@@ -182,10 +267,27 @@ public class MatrixXTrade {
     // =========================================================================
 
     /**
-     * Triggered when an incoming trade invitation packet (Packet 43) is received.
+     * Triggered when an incoming trade invitation packet or notice dialog is received.
      */
+    public static void onNoticeTradeInvite(String noticeText) {
+        MatrixLogger.log("X-TRADE", "Trade Invitation Notice Detected: [" + noticeText + "]");
+        
+        // CONSUME MODE: Auto-accept trade to receive refill items!
+        if (enableConsume) {
+            activeTradeMode = TRADE_CONSUMING;
+            MatrixLogger.log("X-TRADE", "Auto-accepting Consume Trade Invitation!");
+            dq.a().e(); // Packet 36: Accept Trade
+            return;
+        }
+
+        // Pending Buy/Sell Trade
+        if (activeTradeMode != TRADE_IDLE) {
+            MatrixLogger.log("X-TRADE", "Auto-accepting Pending Buy/Sell Trade Invitation!");
+            dq.a().e(); // Packet 36: Accept Trade
+        }
+    }
+
     public static void onTradeInviteReceived(int senderId, String senderName) {
-        // CONSUME MODE: Auto-accept trade to receive refill items
         if (enableConsume) {
             activeTradeMode = TRADE_CONSUMING;
             activeTargetPlayerId = senderId;
@@ -195,8 +297,7 @@ public class MatrixXTrade {
             return;
         }
 
-        // Pending Buy/Sell Trade
-        if (activeTradeMode != TRADE_IDLE && activeTargetPlayerId == senderId) {
+        if (activeTradeMode != TRADE_IDLE) {
             MatrixLogger.log("X-TRADE", "Accepting Trade Invitation from: " + senderName);
             dq.a().e(); // Packet 36: Accept Trade
         }
@@ -312,8 +413,10 @@ public class MatrixXTrade {
         int total = 0;
         for (int i = 0; i < player.aB.length; i++) {
             by item = player.aB[i];
-            if (item != null && item.b != null && item.b.a == itemId) {
-                total += item.e;
+            if (item != null && item.b != null) {
+                if (item.b.a == itemId || item.a == itemId) {
+                    total += (item.e > 0 ? item.e : 1);
+                }
             }
         }
         return total;
@@ -324,21 +427,42 @@ public class MatrixXTrade {
         if (player == null || player.aB == null) return -1;
         for (int i = 0; i < player.aB.length; i++) {
             by item = player.aB[i];
-            if (item != null && item.b != null && item.b.a == itemId) {
-                return i;
+            if (item != null && item.b != null) {
+                if (item.b.a == itemId || item.a == itemId) {
+                    return i;
+                }
             }
         }
         return -1;
     }
 
     public static int findPlayerIdByName(String name) {
-        if (name == null) return -1;
-        // Search target in GameScr character list
+        if (name == null || name.trim().length() == 0) return -1;
+        String searchName = name.trim();
+
+        // 1. Check current target player (bp.d().aV)
         try {
-            if (bp.d().aV != null && name.equalsIgnoreCase(bp.d().aV.ab)) {
+            if (bp.d().aV != null && searchName.equalsIgnoreCase(bp.d().aV.ab)) {
                 return bp.d().aV.p;
             }
         } catch (Exception e) {}
+
+        // 2. Search GameScr map player vector (dg.M)
+        try {
+            aa players = dg.M;
+            if (players != null) {
+                for (int i = 0; i < players.size(); i++) {
+                    Object obj = players.elementAt(i);
+                    if (obj instanceof bp) {
+                        bp p = (bp) obj;
+                        if (p != null && p.ab != null && searchName.equalsIgnoreCase(p.ab)) {
+                            return p.p;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {}
+
         return -1;
     }
 }
