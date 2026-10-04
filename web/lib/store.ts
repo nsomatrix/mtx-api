@@ -9,13 +9,14 @@ export interface ItemOption {
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
   slotIndex: number;
-  type: number; // 0=Weapon, 1=Coat, 2=Ring, 3=Necklace, 4=Headgear, 5=Gloves, 6=Pants, 7=Jade, 8=Shoes, 9=Charm
+  type: number; // 0=Weapon, 1=Sub-Weapon, 2=Coat, 3=Necklace, 4=Gloves, 5=Ring, 6=Pants, 7=Jade, 8=Shoes, 9=Charm
   name: string;
   upgrade: number; // e.g. 12 (+12)
   reqLevel: number;
   rarity?: number;
   rarityDesc?: string;
   isBound?: boolean;
+  durability?: number;
   sockets?: number;
   expiresIn?: string;
   options?: ItemOption[];

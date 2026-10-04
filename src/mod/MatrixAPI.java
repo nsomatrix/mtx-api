@@ -128,31 +128,34 @@ public class MatrixAPI {
     public static boolean checkAndHandleWebInspect(final bp player) {
         if (player == null || player.ab == null) return false;
 
-        if (MatrixNet.isPendingWebInspect(player.ab)) {
-            MatrixLogger.log("API", "Remote Web Inspect fulfilled for target: \"" + player.ab + "\". Suppressing in-game UI.");
-            MatrixNet.markWebFulfilled(player.ab);
-
-            // Dispatch Packet 94 to request item option stats for all equipment slots
-            try {
-                if (player.aD != null) {
-                    for (int i = 0; i < player.aD.length; i++) {
-                        if (player.aD[i] != null) {
-                            dq.a().d(player.p, i);
-                        }
+        // Dispatch Packet 94 to request item option stats for all equipment slots
+        try {
+            if (player.aD != null) {
+                for (int i = 0; i < player.aD.length; i++) {
+                    if (player.aD[i] != null) {
+                        dq.a().d(player.p, i);
                     }
                 }
-            } catch (Exception e) {}
+            }
+        } catch (Exception e) {}
 
-            // Wait 400ms for incoming Packet 94 option detail packets to unpack completely
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        Thread.sleep(400);
-                    } catch (Exception e) {}
-                    MatrixLogger.logPlayerInfo(player);
-                }
-            }).start();
+        boolean isWeb = MatrixNet.isPendingWebInspect(player.ab);
+        if (isWeb) {
+            MatrixLogger.log("API", "Remote Web Inspect fulfilled for target: \"" + player.ab + "\". Suppressing in-game UI.");
+            MatrixNet.markWebFulfilled(player.ab);
+        }
 
+        // Wait 400ms for incoming Packet 94 option detail packets to unpack completely before posting atomic snapshot
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Thread.sleep(400);
+                } catch (Exception e) {}
+                MatrixLogger.logPlayerInfo(player);
+            }
+        }).start();
+
+        if (isWeb) {
             try {
                 if (dg.n() != null) {
                     dg.n().v();
@@ -161,7 +164,6 @@ public class MatrixAPI {
             return true;
         }
 
-        MatrixLogger.logPlayerInfo(player);
         return false;
     }
 

@@ -118,20 +118,26 @@ export function PlayerIOModule() {
 
   const SLOT_NAMES: { [key: number]: string } = {
     0: 'Weapon',
-    1: 'Coat / Armor',
-    2: 'Ring',
+    1: 'Sub-Weapon / Weapon',
+    2: 'Coat / Top Armor',
     3: 'Necklace',
-    4: 'Headgear',
-    5: 'Gloves',
-    6: 'Pants',
+    4: 'Gloves',
+    5: 'Ring',
+    6: 'Pants / Bottom Armor',
     7: 'Jade / Amulet',
     8: 'Shoes',
     9: 'Charm',
-    29: 'Mount',
-    30: 'Fashion',
-    31: 'Bijuu',
-    32: 'Clan Badge',
-    33: 'Artifact',
+    10: 'Fashion Costume',
+    11: 'Mask',
+    12: 'Clan Aura / Armor',
+    13: 'Medal',
+    18: 'Fashion Costume',
+    27: 'Mask / Accessory',
+    29: 'Mount Gear: Coronet',
+    30: 'Mount Gear: Armor',
+    31: 'Mount Gear: Saddle',
+    32: 'Mount Gear: Bridle',
+    33: 'Mount',
   };
 
   // Real-Time BaaS WebSocket Listener (0 Cloudflare Edge API Calls)
@@ -1000,6 +1006,8 @@ export function PlayerIOModule() {
                     const slotName = SLOT_NAMES[item.type] || 'Slot';
                     const style = getUpgradeStyle(item.upgrade || 0);
                     const rarityLabel = item.rarityDesc || (item.rarity === 3 ? 'Violet' : item.rarity === 2 ? 'Yellow' : item.rarity === 1 ? 'Blue' : '');
+                    const isMount = item.type === 33;
+                    const upgradeLabel = isMount ? `LV ${item.upgrade}` : `+${item.upgrade}`;
 
                     return (
                       <div key={idx} className="p-3 hover:bg-zinc-900/60 transition-colors space-y-2">
@@ -1009,7 +1017,7 @@ export function PlayerIOModule() {
                               <span className={`text-xs font-semibold ${style.title}`}>{item.name}</span>
                               {item.upgrade > 0 && (
                                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${style.badge}`}>
-                                  +{item.upgrade}
+                                  {upgradeLabel}
                                 </span>
                               )}
                               {rarityLabel && (
@@ -1025,7 +1033,11 @@ export function PlayerIOModule() {
                             </div>
                             <p className="text-[10px] font-mono text-zinc-500">
                               {slotName} • Req Lvl {item.reqLevel}
-                              {item.sockets ? ` • ${item.sockets} Sockets` : ''}
+                              {item.durability !== undefined && item.durability > 0
+                                ? ` • ${item.durability} Durability`
+                                : item.sockets
+                                ? ` • ${item.sockets} Sockets`
+                                : ''}
                               {item.expiresIn && item.expiresIn !== 'Permanent' ? ` • Exp: ${item.expiresIn}` : ''}
                             </p>
                           </div>

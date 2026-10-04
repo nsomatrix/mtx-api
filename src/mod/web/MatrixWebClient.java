@@ -406,7 +406,7 @@ public class MatrixWebClient {
             default: rarityDesc = (item.b.e != null ? item.b.e : ""); break;
         }
         boolean isBound = (item.k > 0 || item.p);
-        int sockets = item.n;
+        int durability = item.n;
         String expiresIn = (item.g > 0) ? item.f() : "Permanent";
 
         StringBuffer sb = new StringBuffer("{");
@@ -419,7 +419,7 @@ public class MatrixWebClient {
         sb.append("\"rarity\":").append(rarityTier).append(",");
         sb.append("\"rarityDesc\":").append(quote(rarityDesc)).append(",");
         sb.append("\"isBound\":").append(isBound ? "true" : "false").append(",");
-        sb.append("\"sockets\":").append(sockets).append(",");
+        sb.append("\"durability\":").append(durability).append(",");
         sb.append("\"expiresIn\":").append(quote(expiresIn)).append(",");
         sb.append("\"options\":").append(buildItemOptionsJson(item));
         sb.append("}");
