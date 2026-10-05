@@ -151,7 +151,42 @@ export function PlayerIOModule() {
           const data = snap.data();
           const allPlayers: PlayerProfile[] = Array.isArray(data.players) ? data.players : [];
 
-          // If we have a pending inspect request, check if a fresh payload has arrived in real-time
+          // 1. Automatically update any existing session cards with fresh data from Firestore
+          setSessionPlayers((prev) => {
+            if (prev.length === 0) return prev;
+            let changed = false;
+            const next = prev.map((p) => {
+              const fresh = allPlayers.find((ap) => ap.name.toLowerCase() === p.name.toLowerCase());
+              if (fresh && fresh.lastUpdated !== p.lastUpdated) {
+                changed = true;
+                return fresh;
+              }
+              return p;
+            });
+            return changed ? next : prev;
+          });
+
+          // 2. Automatically update open Equipment Modal if fresh options arrived
+          setEquipmentPlayer((prev) => {
+            if (!prev) return prev;
+            const fresh = allPlayers.find((ap) => ap.name.toLowerCase() === prev.name.toLowerCase());
+            if (fresh && fresh.lastUpdated !== prev.lastUpdated) {
+              return fresh;
+            }
+            return prev;
+          });
+
+          // 3. Automatically update open Player Details Modal if fresh data arrived
+          setSelectedPlayer((prev) => {
+            if (!prev) return prev;
+            const fresh = allPlayers.find((ap) => ap.name.toLowerCase() === prev.name.toLowerCase());
+            if (fresh && fresh.lastUpdated !== prev.lastUpdated) {
+              return fresh;
+            }
+            return prev;
+          });
+
+          // 4. Handle pending inspect target request
           if (pendingTargetName) {
             const found = allPlayers.find(
               (p) => p.name.toLowerCase() === pendingTargetName.toLowerCase()
@@ -197,11 +232,17 @@ export function PlayerIOModule() {
                 setFetchMsg({ type: 'success', text: `Retrieved live profile for "${found.name}"!` });
               }
 
-              setFetching(false);
-              setPendingTargetName(null);
-              setRefreshingTarget(null);
-              setTargetName('');
-              fetchStartTimeRef.current = 0;
+              // Check if equipment options have arrived or wait up to 1.5s max before ending pending state
+              const hasOptions = (found.equipment || []).some((item) => item.options && item.options.length > 0);
+              const elapsedMs = fetchStartTimeRef.current > 0 ? Date.now() - fetchStartTimeRef.current : 1000;
+
+              if (hasOptions || elapsedMs >= 1500 || isOffline) {
+                setFetching(false);
+                setPendingTargetName(null);
+                setRefreshingTarget(null);
+                setTargetName('');
+                fetchStartTimeRef.current = 0;
+              }
             }
           }
         }

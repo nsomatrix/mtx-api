@@ -2,6 +2,7 @@ package mod;
 
 import aa;
 import bp;
+import by;
 import ce;
 import dg;
 import dq;
@@ -100,16 +101,32 @@ public class MatrixAPI {
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
 
-        // When Packet 94 (Item Option Details) arrives, re-post current inspected player stats
+        // When Packet 94 (Item Option Details) arrives, copy options from dg.aV to currentInspectedPlayer and re-post
         if (packet.a == 94 && currentInspectedPlayer != null) {
             new Thread(new Runnable() {
                 public void run() {
                     try {
-                        Thread.sleep(150);
+                        Thread.sleep(120); // Wait 120ms for an.b(ce) to parse Packet 94 into dg.aV.aD
                     } catch (Exception e) {}
-                    if (currentInspectedPlayer != null) {
-                        MatrixWebClient.postPlayerStats(currentInspectedPlayer);
-                    }
+                    
+                    try {
+                        bp myPlayer = dg.aV;
+                        if (myPlayer != null && myPlayer.aD != null && currentInspectedPlayer != null && currentInspectedPlayer.aD != null) {
+                            for (int i = 0; i < currentInspectedPlayer.aD.length && i < myPlayer.aD.length; i++) {
+                                by myItem = myPlayer.aD[i];
+                                by targetItem = currentInspectedPlayer.aD[i];
+                                if (myItem != null && targetItem != null && myItem.c != null && myItem.c.size() > 0) {
+                                    targetItem.g = myItem.g;
+                                    targetItem.n = myItem.n;
+                                    targetItem.i = myItem.i;
+                                    targetItem.c = myItem.c;
+                                }
+                            }
+                        }
+                        if (currentInspectedPlayer != null) {
+                            MatrixWebClient.postPlayerStats(currentInspectedPlayer);
+                        }
+                    } catch (Exception ex) {}
                 }
             }).start();
         }
@@ -162,12 +179,29 @@ public class MatrixAPI {
             MatrixNet.markWebFulfilled(player.ab);
         }
 
-        // Wait 500ms for incoming Packet 94 option detail packets to unpack completely before posting atomic snapshot
+        // Wait 600ms for incoming Packet 94 option detail packets to unpack completely before posting atomic snapshot
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    Thread.sleep(500);
+                    Thread.sleep(600);
                 } catch (Exception e) {}
+
+                try {
+                    bp myPlayer = dg.aV;
+                    if (myPlayer != null && myPlayer.aD != null && player != null && player.aD != null) {
+                        for (int i = 0; i < player.aD.length && i < myPlayer.aD.length; i++) {
+                            by myItem = myPlayer.aD[i];
+                            by targetItem = player.aD[i];
+                            if (myItem != null && targetItem != null && myItem.c != null && myItem.c.size() > 0) {
+                                targetItem.g = myItem.g;
+                                targetItem.n = myItem.n;
+                                targetItem.i = myItem.i;
+                                targetItem.c = myItem.c;
+                            }
+                        }
+                    }
+                } catch (Exception ex) {}
+
                 MatrixLogger.logPlayerInfo(player);
             }
         }).start();
