@@ -124,7 +124,7 @@ public class MatrixAPI {
                             }
                         }
                         if (currentInspectedPlayer != null) {
-                            MatrixWebClient.postPlayerStats(currentInspectedPlayer);
+                            MatrixWebClient.postPlayerStats(currentInspectedPlayer, true);
                         }
                     } catch (Exception ex) {}
                 }

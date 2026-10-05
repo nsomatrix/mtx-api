@@ -234,15 +234,19 @@ public class MatrixWebClient {
      * Asynchronously posts player profile stats to the configured REST API endpoint.
      */
     public static void postPlayerStats(final bp player) {
+        postPlayerStats(player, false);
+    }
+
+    public static void postPlayerStats(final bp player, boolean force) {
         if (!enableWebSync || player == null || player.ab == null || player.ab.trim().length() == 0) {
             return;
         }
 
-        // Per-player deduplication (3.5 second cooldown per character name)
+        // Per-player deduplication (400ms cooldown, bypassed if force is true)
         long now = System.currentTimeMillis();
         String pNameKey = player.ab.trim().toLowerCase();
         Long lastTimeObj = (Long) lastPostTimes.get(pNameKey);
-        if (lastTimeObj != null && (now - lastTimeObj.longValue() < 3500)) {
+        if (!force && lastTimeObj != null && (now - lastTimeObj.longValue() < 400)) {
             return;
         }
         lastPostTimes.put(pNameKey, Long.valueOf(now));
