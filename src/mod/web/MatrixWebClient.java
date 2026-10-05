@@ -22,6 +22,7 @@ public class MatrixWebClient {
     public static boolean enableWebSync = true;
     public static boolean enablePolling = true;
     public static String restApiEndpoint = loadEndpointFromRMS();
+    public static String operatorToken = loadOperatorTokenFromRMS();
     private static Thread pollThread = null;
 
     /**
@@ -66,7 +67,15 @@ public class MatrixWebClient {
         return base + "/api/v1/inspect";
     }
 
-
+    /**
+     * Applies standard HTTP headers including User-Agent and X-Matrix-Operator-Token authorization.
+     */
+    private static void setCommonHeaders(HttpConnection conn) throws Exception {
+        conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
+        if (operatorToken != null && operatorToken.trim().length() > 0) {
+            conn.setRequestProperty("X-Matrix-Operator-Token", operatorToken.trim());
+        }
+    }
 
     private static java.util.Vector activeLiveTargets = new java.util.Vector();
     private static java.util.Hashtable lastPostTimes = new java.util.Hashtable();
@@ -108,7 +117,7 @@ public class MatrixWebClient {
         try {
             conn = (HttpConnection) Connector.open(inspectUrl, Connector.READ, true);
             conn.setRequestMethod(HttpConnection.GET);
-            conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
+            setCommonHeaders(conn);
 
             int code = conn.getResponseCode();
             if (code == HttpConnection.HTTP_OK) {
@@ -152,8 +161,6 @@ public class MatrixWebClient {
         }
     }
 
-
-
     private static String extractTargetFromJson(String json) {
         if (json == null) return null;
         int idx = json.indexOf("\"target\":");
@@ -191,6 +198,17 @@ public class MatrixWebClient {
         }
     }
 
+    /**
+     * Dynamically updates and persists the Operator Token in J2ME RMS storage.
+     */
+    public static void setOperatorToken(String newToken) {
+        if (newToken != null && newToken.trim().length() > 0) {
+            operatorToken = newToken.trim();
+            saveOperatorTokenToRMS(operatorToken);
+            MatrixLogger.log("WEB-REST", "Operator Token updated & saved: " + operatorToken);
+        }
+    }
+
     private static String loadEndpointFromRMS() {
         RecordStore rs = null;
         try {
@@ -225,6 +243,40 @@ public class MatrixWebClient {
             }
         } catch (Exception e) {
             MatrixLogger.log("WEB-REST", "RMS Save Error: " + e.getMessage());
+        } finally {
+            try { if (rs != null) rs.closeRecordStore(); } catch (Exception e) {}
+        }
+    }
+
+    private static String loadOperatorTokenFromRMS() {
+        RecordStore rs = null;
+        try {
+            rs = RecordStore.openRecordStore("MatrixWebTokenConfig", true);
+            if (rs.getNumRecords() > 0) {
+                byte[] data = rs.getRecord(1);
+                if (data != null && data.length > 0) {
+                    return new String(data, "UTF-8");
+                }
+            }
+        } catch (Exception e) {
+        } finally {
+            try { if (rs != null) rs.closeRecordStore(); } catch (Exception e) {}
+        }
+        return "mtx_manix_20190201"; // Default Operator Token fallback
+    }
+
+    private static void saveOperatorTokenToRMS(String token) {
+        RecordStore rs = null;
+        try {
+            rs = RecordStore.openRecordStore("MatrixWebTokenConfig", true);
+            byte[] data = token.getBytes("UTF-8");
+            if (rs.getNumRecords() == 0) {
+                rs.addRecord(data, 0, data.length);
+            } else {
+                rs.setRecord(1, data, 0, data.length);
+            }
+        } catch (Exception e) {
+            MatrixLogger.log("WEB-REST", "RMS Token Save Error: " + e.getMessage());
         } finally {
             try { if (rs != null) rs.closeRecordStore(); } catch (Exception e) {}
         }
@@ -285,7 +337,7 @@ public class MatrixWebClient {
                     conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
                     conn.setRequestMethod(HttpConnection.POST);
                     conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
+                    setCommonHeaders(conn);
 
                     byte[] data = jsonPayload.getBytes("UTF-8");
                     conn.setRequestProperty("Content-Length", Integer.toString(data.length));
@@ -546,7 +598,7 @@ public class MatrixWebClient {
                     conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
                     conn.setRequestMethod(HttpConnection.POST);
                     conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setRequestProperty("User-Agent", "MTX-API/1.0 (J2ME MIDP2.0)");
+                    setCommonHeaders(conn);
 
                     byte[] data = jsonPayload.getBytes("UTF-8");
                     conn.setRequestProperty("Content-Length", Integer.toString(data.length));
@@ -568,9 +620,6 @@ public class MatrixWebClient {
         });
         webThread.start();
     }
-
-
-
 
     private static String quote(String input) {
         if (input == null) return "\"\"";

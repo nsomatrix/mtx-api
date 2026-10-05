@@ -1,4 +1,9 @@
-import { getFirestoreDoc, setFirestoreDoc } from './firestoreRest';
+import {
+  getFirestoreDoc,
+  setFirestoreDoc,
+  deleteFirestoreDoc,
+  listFirestoreCollection,
+} from './firestoreRest';
 
 export interface ItemOption {
   id: number;
@@ -63,10 +68,9 @@ export interface PlayerProfile {
   error?: string;
 }
 
-// Safe module-level closure cache
-let matrixPlayersCache: PlayerProfile[] = [];
-let pendingInspectQueueCache: string[] = [];
-let lastModClientActivityTimestamp = 0;
+function getPlayerDocKey(name: string): string {
+  return encodeURIComponent(name.trim().toLowerCase());
+}
 
 /**
  * Touch the mod client activity timestamp whenever an active mod client
@@ -74,7 +78,6 @@ let lastModClientActivityTimestamp = 0;
  */
 export async function touchModClientHeartbeat() {
   const now = Date.now();
-  lastModClientActivityTimestamp = now;
   await setFirestoreDoc('system/heartbeat', {
     lastActive: now,
     lastUpdated: new Date().toISOString(),
@@ -86,12 +89,8 @@ export async function touchModClientHeartbeat() {
  * Default max age: 20 seconds.
  */
 export async function getModClientStatus(maxAgeMs = 20000) {
-  let lastActive = lastModClientActivityTimestamp || 0;
   const data = await getFirestoreDoc<{ lastActive?: number }>('system/heartbeat');
-  if (data && typeof data.lastActive === 'number' && data.lastActive > lastActive) {
-    lastActive = data.lastActive;
-    lastModClientActivityTimestamp = lastActive;
-  }
+  const lastActive = data && typeof data.lastActive === 'number' ? data.lastActive : 0;
   const isOnline = lastActive > 0 && Date.now() - lastActive < maxAgeMs;
   return {
     isOnline,
@@ -100,66 +99,49 @@ export async function getModClientStatus(maxAgeMs = 20000) {
 }
 
 export async function getAllPlayers(): Promise<PlayerProfile[]> {
-  let loaded: PlayerProfile[] = matrixPlayersCache || [];
-  const data = await getFirestoreDoc<{ players?: PlayerProfile[] }>('system/players');
-  if (data && Array.isArray(data.players)) {
-    loaded = data.players;
-    matrixPlayersCache = loaded;
+  // 1. Fetch individual documents from the `players` collection
+  let players = await listFirestoreCollection<PlayerProfile>('players');
+
+  // 2. Backward compatibility fallback: check legacy system/players document if collection is empty
+  if (players.length === 0) {
+    const legacyData = await getFirestoreDoc<{ players?: PlayerProfile[] }>('system/players');
+    if (legacyData && Array.isArray(legacyData.players) && legacyData.players.length > 0) {
+      players = legacyData.players;
+      // Auto-migrate legacy players into individual collection documents
+      for (const p of players) {
+        if (p && p.name) {
+          await setFirestoreDoc(`players/${getPlayerDocKey(p.name)}`, p);
+        }
+      }
+    }
   }
-  return loaded;
+
+  // Sort by lastUpdated descending
+  return players.sort((a, b) => new Date(b.lastUpdated || 0).getTime() - new Date(a.lastUpdated || 0).getTime());
 }
 
-export async function saveAllPlayers(players: PlayerProfile[]) {
-  matrixPlayersCache = players;
-  await setFirestoreDoc('system/players', {
-    players: JSON.parse(JSON.stringify(players)),
-    lastUpdated: new Date().toISOString(),
-  });
+export async function getPlayerByName(name: string): Promise<PlayerProfile | null> {
+  const key = getPlayerDocKey(name);
+  const doc = await getFirestoreDoc<PlayerProfile>(`players/${key}`);
+  if (doc && doc.name) return doc;
+
+  const all = await getAllPlayers();
+  return all.find((p) => p.name.toLowerCase() === name.toLowerCase()) || null;
 }
 
-export async function clearAllPlayers() {
-  pendingInspectQueueCache = [];
-  await saveAllPlayers([]);
-  await setFirestoreDoc('system/inspect_queue', { queue: [] });
-}
+export async function saveOrUpdatePlayer(
+  playerData: Partial<PlayerProfile> & { name: string }
+): Promise<PlayerProfile> {
+  const name = playerData.name.trim();
+  const docKey = getPlayerDocKey(name);
 
-// Queue functions for J2ME inspect triggers
-export async function pushInspectQueue(targetName: string) {
-  if (!pendingInspectQueueCache.includes(targetName)) {
-    pendingInspectQueueCache.push(targetName);
-  }
-  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
-  let currentQueue: string[] = data && Array.isArray(data.queue) ? data.queue : [];
-  if (!currentQueue.includes(targetName)) {
-    currentQueue.push(targetName);
-    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
-  }
-}
-
-export async function popInspectQueue(): Promise<string | null> {
-  let target: string | null = null;
-  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
-  if (data && Array.isArray(data.queue) && data.queue.length > 0) {
-    const currentQueue = [...data.queue];
-    target = currentQueue.shift() || null;
-    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
-  }
-  if (!target && pendingInspectQueueCache.length > 0) {
-    target = pendingInspectQueueCache.shift() || null;
-  }
-  return target;
-}
-
-export async function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { name: string }): Promise<PlayerProfile> {
-  let players = await getAllPlayers();
-  const index = players.findIndex((p) => p.name.toLowerCase() === playerData.name.toLowerCase());
-  const existing = index >= 0 ? players[index] : null;
-
+  // Fetch existing profile if available
+  const existing = await getPlayerByName(name);
   const isOffline = playerData.status === 'OFFLINE' || playerData.online === false || !!playerData.error;
 
   const updatedPlayer: PlayerProfile = {
-    name: playerData.name,
-    level: playerData.level !== undefined ? playerData.level : existing ? existing.level : 0,
+    name,
+    level: playerData.level !== undefined ? playerData.level : existing ? existing.level : 1,
     class: playerData.class || (existing ? existing.class : 'Unknown'),
     school: playerData.school || (existing ? existing.school : 'Unknown'),
     gender: playerData.gender !== undefined ? playerData.gender : existing ? existing.gender : '',
@@ -191,32 +173,64 @@ export async function saveOrUpdatePlayer(playerData: Partial<PlayerProfile> & { 
     unassignedSkills: playerData.unassignedSkills !== undefined ? playerData.unassignedSkills : existing ? existing.unassignedSkills : 0,
     exp: playerData.exp !== undefined ? playerData.exp : existing ? existing.exp : 0,
     pk: playerData.pk !== undefined ? playerData.pk : existing ? existing.pk : 0,
-    equipment: playerData.equipment || [],
+    equipment: playerData.equipment || (existing ? existing.equipment : []),
     lastUpdated: new Date().toISOString(),
     status: isOffline ? 'OFFLINE' : playerData.status || 'ONLINE',
     online: isOffline ? false : playerData.online ?? true,
     error: playerData.error,
   };
 
-  if (index >= 0) {
-    players[index] = updatedPlayer;
-  } else {
-    players.unshift(updatedPlayer);
-  }
+  // 1. Save to individual player document
+  await setFirestoreDoc(`players/${docKey}`, updatedPlayer);
 
-  await saveAllPlayers(players);
+  // 2. Sync to system/players single document for real-time legacy snapshot listeners
+  const allPlayers = await getAllPlayers();
+  await setFirestoreDoc('system/players', {
+    players: JSON.parse(JSON.stringify(allPlayers)),
+    lastUpdated: new Date().toISOString(),
+  });
+
   return updatedPlayer;
 }
 
 export async function deletePlayerByName(name: string): Promise<boolean> {
-  let players = await getAllPlayers();
-  const initialCount = players.length;
-  players = players.filter((p) => p.name.toLowerCase() !== name.toLowerCase());
-  if (players.length !== initialCount) {
-    await saveAllPlayers(players);
-    return true;
-  }
-  return false;
+  const docKey = getPlayerDocKey(name);
+  const deleted = await deleteFirestoreDoc(`players/${docKey}`);
+
+  // Sync system/players
+  const allPlayers = await getAllPlayers();
+  await setFirestoreDoc('system/players', {
+    players: JSON.parse(JSON.stringify(allPlayers)),
+    lastUpdated: new Date().toISOString(),
+  });
+
+  return deleted;
 }
 
+export async function clearAllPlayers() {
+  const players = await getAllPlayers();
+  await Promise.all(players.map((p) => deleteFirestoreDoc(`players/${getPlayerDocKey(p.name)}`)));
+  await setFirestoreDoc('system/players', { players: [], lastUpdated: new Date().toISOString() });
+  await setFirestoreDoc('system/inspect_queue', { queue: [] });
+}
 
+// Queue functions for J2ME inspect triggers
+export async function pushInspectQueue(targetName: string) {
+  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
+  let currentQueue: string[] = data && Array.isArray(data.queue) ? data.queue : [];
+  if (!currentQueue.includes(targetName)) {
+    currentQueue.push(targetName);
+    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
+  }
+}
+
+export async function popInspectQueue(): Promise<string | null> {
+  let target: string | null = null;
+  const data = await getFirestoreDoc<{ queue?: string[] }>('system/inspect_queue');
+  if (data && Array.isArray(data.queue) && data.queue.length > 0) {
+    const currentQueue = [...data.queue];
+    target = currentQueue.shift() || null;
+    await setFirestoreDoc('system/inspect_queue', { queue: currentQueue });
+  }
+  return target;
+}

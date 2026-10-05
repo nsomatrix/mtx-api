@@ -95,52 +95,50 @@ public class MatrixAPI {
     }
 
     private static bp currentInspectedPlayer = null;
+    private static long lastPacket94Time = 0;
+    private static Thread packet94DebounceThread = null;
 
     public static void onPacketReceived(ce packet) {
         if (packet == null) return;
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
 
-        // When Packet 94 (Item Option Details) arrives, copy options from dg.aV to currentInspectedPlayer and re-post
+        // When Packet 94 (Item Option Details) arrives, copy options and send ONE debounced POST request
         if (packet.a == 94 && currentInspectedPlayer != null) {
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        Thread.sleep(120); // Wait 120ms for an.b(ce) to parse Packet 94 into dg.aV.aD
-                    } catch (Exception e) {}
-                    
-                    try {
-                        bp myPlayer = dg.aV;
-                        if (myPlayer != null && myPlayer.aD != null && currentInspectedPlayer != null && currentInspectedPlayer.aD != null) {
-                            for (int i = 0; i < currentInspectedPlayer.aD.length && i < myPlayer.aD.length; i++) {
-                                by myItem = myPlayer.aD[i];
-                                by targetItem = currentInspectedPlayer.aD[i];
-                                if (myItem != null && targetItem != null && myItem.c != null && myItem.c.size() > 0) {
-                                    targetItem.g = myItem.g;
-                                    targetItem.n = myItem.n;
-                                    targetItem.i = myItem.i;
-                                    targetItem.c = myItem.c;
-                                }
-                            }
-                        }
-                        if (currentInspectedPlayer != null) {
-                            MatrixWebClient.postPlayerStats(currentInspectedPlayer, true);
-                        }
-                    } catch (Exception ex) {}
-                }
-            }).start();
-        }
+            lastPacket94Time = System.currentTimeMillis();
 
-        // Auto-dump items when game data resources packet arrives (Packet -28 or -29)
-        if (packet.a == -28 || packet.a == -29) {
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        Thread.sleep(3000); // Wait 3s for game engine to unpack e.a table
-                        mod.item.MatrixItemExporter.dumpItemsToConsole();
-                    } catch (Exception e) {}
+            synchronized (MatrixAPI.class) {
+                if (packet94DebounceThread == null || !packet94DebounceThread.isAlive()) {
+                    packet94DebounceThread = new Thread(new Runnable() {
+                        public void run() {
+                            try {
+                                // Wait until 400ms passes with no new Packet 94 arriving
+                                while (System.currentTimeMillis() - lastPacket94Time < 400) {
+                                    Thread.sleep(100);
+                                }
+
+                                bp myPlayer = dg.aV;
+                                if (myPlayer != null && myPlayer.aD != null && currentInspectedPlayer != null && currentInspectedPlayer.aD != null) {
+                                    for (int i = 0; i < currentInspectedPlayer.aD.length && i < myPlayer.aD.length; i++) {
+                                        by myItem = myPlayer.aD[i];
+                                        by targetItem = currentInspectedPlayer.aD[i];
+                                        if (myItem != null && targetItem != null && myItem.c != null && myItem.c.size() > 0) {
+                                            targetItem.g = myItem.g;
+                                            targetItem.n = myItem.n;
+                                            targetItem.i = myItem.i;
+                                            targetItem.c = myItem.c;
+                                        }
+                                    }
+                                }
+                                if (currentInspectedPlayer != null) {
+                                    MatrixWebClient.postPlayerStats(currentInspectedPlayer, true);
+                                }
+                            } catch (Exception ex) {}
+                        }
+                    });
+                    packet94DebounceThread.start();
                 }
-            }).start();
+            }
         }
     }
 

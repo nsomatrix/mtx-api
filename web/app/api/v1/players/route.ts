@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getAllPlayers, saveOrUpdatePlayer, clearAllPlayers, deletePlayerByName, touchModClientHeartbeat } from '@/lib/store';
+import {
+  getAllPlayers,
+  saveOrUpdatePlayer,
+  clearAllPlayers,
+  deletePlayerByName,
+  touchModClientHeartbeat,
+} from '@/lib/store';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
+import { verifyAuthToken } from '@/lib/authVerify';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -19,36 +26,45 @@ export async function GET(request: Request) {
   let players = await getAllPlayers();
 
   if (query) {
-    players = players.filter(p => p.name.toLowerCase().includes(query));
+    players = players.filter((p) => p.name.toLowerCase().includes(query));
   }
   if (school && school !== 'All') {
-    players = players.filter(p => p.school.toLowerCase() === school.toLowerCase());
+    players = players.filter((p) => p.school.toLowerCase() === school.toLowerCase());
   }
   if (className && className !== 'All') {
-    players = players.filter(p => p.class.toLowerCase() === className.toLowerCase());
+    players = players.filter((p) => p.class.toLowerCase() === className.toLowerCase());
   }
 
   return NextResponse.json(
     {
       status: 200,
       count: players.length,
-      players: players
+      players: players,
     },
     {
       status: 200,
-      headers: NO_CACHE_HEADERS
+      headers: NO_CACHE_HEADERS,
     }
   );
 }
 
 export async function POST(request: Request) {
-  await touchModClientHeartbeat();
   const ip = getClientIp(request);
-  // Rate limit: Max 120 requests per minute per IP (handles up to 4 live accounts @ 5s interval safely)
   const rate = checkRateLimit(ip, 120, 60000);
   if (rate.isLimited) {
     return rateLimitResponse(rate.resetMs);
   }
+
+  // 1. Authenticate POST request (Firebase JWT or Operator Token)
+  const auth = await verifyAuthToken(request);
+  if (!auth.valid) {
+    return NextResponse.json(
+      { status: 401, error: `Unauthorized: ${auth.error || 'Valid authentication token required'}` },
+      { status: 401, headers: NO_CACHE_HEADERS }
+    );
+  }
+
+  await touchModClientHeartbeat();
 
   try {
     const body = await request.json();
@@ -66,8 +82,8 @@ export async function POST(request: Request) {
       class: body.class || 'Unknown',
       school: body.school || 'Unknown',
       gender: body.gender || '',
-      clan: body.clan !== undefined ? body.clan : (body.giaToc !== undefined ? body.giaToc : ''),
-      giaToc: body.giaToc !== undefined ? body.giaToc : (body.clan !== undefined ? body.clan : ''),
+      clan: body.clan !== undefined ? body.clan : body.giaToc !== undefined ? body.giaToc : '',
+      giaToc: body.giaToc !== undefined ? body.giaToc : body.clan !== undefined ? body.clan : '',
       clanRank: Number(body.clanRank) || 0,
       hp: Number(body.hp) || 0,
       maxHp: Number(body.maxHp) || 0,
@@ -106,7 +122,7 @@ export async function POST(request: Request) {
       {
         status: 201,
         message: 'Player stats successfully stored',
-        player: saved
+        player: saved,
       },
       { status: 201, headers: NO_CACHE_HEADERS }
     );
@@ -120,6 +136,15 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  // 1. Authenticate DELETE request
+  const auth = await verifyAuthToken(request);
+  if (!auth.valid) {
+    return NextResponse.json(
+      { status: 401, error: `Unauthorized: ${auth.error || 'Valid authentication token required for deletion'}` },
+      { status: 401, headers: NO_CACHE_HEADERS }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const name = searchParams.get('name');
 
@@ -129,7 +154,7 @@ export async function DELETE(request: Request) {
       {
         status: 200,
         success: deleted,
-        message: deleted ? `Player ${name} successfully dismissed` : `Player ${name} not found`
+        message: deleted ? `Player ${name} successfully dismissed` : `Player ${name} not found`,
       },
       { status: 200, headers: NO_CACHE_HEADERS }
     );
@@ -139,7 +164,7 @@ export async function DELETE(request: Request) {
   return NextResponse.json(
     {
       status: 200,
-      message: 'All player profiles and pending inspect queues successfully cleared'
+      message: 'All player profiles and pending inspect queues successfully cleared',
     },
     { status: 200, headers: NO_CACHE_HEADERS }
   );

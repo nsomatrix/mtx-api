@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { popInspectQueue, pushInspectQueue, touchModClientHeartbeat } from '@/lib/store';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rateLimit';
+import { verifyAuthToken } from '@/lib/authVerify';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -10,31 +11,37 @@ const NO_CACHE_HEADERS = {
   'Pragma': 'no-cache',
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const ip = getClientIp(request);
+  const rate = checkRateLimit(ip, 60, 60000);
+  if (rate.isLimited) {
+    return rateLimitResponse(rate.resetMs);
+  }
+
   try {
     await touchModClientHeartbeat();
     const target = await popInspectQueue();
     return NextResponse.json(
       {
         status: 200,
-        target: target
+        target: target,
       },
       {
         status: 200,
-        headers: NO_CACHE_HEADERS
+        headers: NO_CACHE_HEADERS,
       }
     );
   } catch (err: any) {
     console.error('[MTX-API-INSPECT] GET error:', err);
     return NextResponse.json(
       {
-        status: 200,
+        status: 500,
         target: null,
-        error: err.message
+        error: err.message,
       },
       {
-        status: 200,
-        headers: NO_CACHE_HEADERS
+        status: 500,
+        headers: NO_CACHE_HEADERS,
       }
     );
   }
@@ -42,8 +49,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  // Rate limit: Max 10 inspect fetch requests per minute per IP
-  const rate = checkRateLimit(ip, 10, 60000);
+  // Rate limit: Max 20 inspect requests per minute per IP
+  const rate = checkRateLimit(ip, 20, 60000);
   if (rate.isLimited) {
     return rateLimitResponse(rate.resetMs);
   }
@@ -58,14 +65,24 @@ export async function POST(request: Request) {
     }
 
     const targetName = body.name.trim();
+
+    // Sensitive / Destructive Action Guard
     if (targetName === '__CLEAR__') {
+      const auth = await verifyAuthToken(request);
+      if (!auth.valid) {
+        return NextResponse.json(
+          { status: 401, error: `Unauthorized: ${auth.error || 'Authentication required for clear action'}` },
+          { status: 401, headers: NO_CACHE_HEADERS }
+        );
+      }
+
       const { clearAllPlayers } = await import('@/lib/store');
       await clearAllPlayers();
       return NextResponse.json(
         {
           status: 200,
           message: 'All player profiles and pending inspect queues successfully cleared',
-          target: null
+          target: null,
         },
         { status: 200, headers: NO_CACHE_HEADERS }
       );
@@ -79,7 +96,7 @@ export async function POST(request: Request) {
       {
         status: 200,
         message: `Remote inspect fetch queued for "${targetName}"`,
-        target: targetName
+        target: targetName,
       },
       { status: 200, headers: NO_CACHE_HEADERS }
     );

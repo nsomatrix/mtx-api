@@ -8,7 +8,29 @@ const PROJECT_ID =
   process.env.FIREBASE_PROJECT_ID ||
   'nsomatrix-core';
 
+const API_KEY =
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+  process.env.FIREBASE_API_KEY ||
+  '';
+
 const BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+
+function getApiUrl(docPath: string): string {
+  const cleanPath = docPath.startsWith('/') ? docPath.slice(1) : docPath;
+  const url = `${BASE_URL}/${cleanPath}`;
+  return API_KEY ? `${url}?key=${API_KEY}` : url;
+}
+
+function getRequestHeaders(authToken?: string, extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...extraHeaders,
+  };
+  if (authToken) {
+    headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+  }
+  return headers;
+}
 
 function toFirestoreValue(val: any): any {
   if (val === null || val === undefined) return { nullValue: null };
@@ -40,7 +62,7 @@ function fromFirestoreValue(val: any): any {
   if ('doubleValue' in val) return Number(val.doubleValue);
   if ('stringValue' in val) return val.stringValue;
   if ('arrayValue' in val) {
-    return Array.isArray(val.arrayValue.values)
+    return Array.isArray(val.arrayValue?.values)
       ? val.arrayValue.values.map(fromFirestoreValue)
       : [];
   }
@@ -55,10 +77,10 @@ function fromFirestoreValue(val: any): any {
   return null;
 }
 
-export async function getFirestoreDoc<T = Record<string, any>>(docPath: string): Promise<T | null> {
+export async function getFirestoreDoc<T = Record<string, any>>(docPath: string, authToken?: string): Promise<T | null> {
   try {
-    const res = await fetch(`${BASE_URL}/${docPath}`, {
-      headers: { Accept: 'application/json' },
+    const res = await fetch(getApiUrl(docPath), {
+      headers: getRequestHeaders(authToken),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as any;
@@ -74,7 +96,7 @@ export async function getFirestoreDoc<T = Record<string, any>>(docPath: string):
   }
 }
 
-export async function setFirestoreDoc(docPath: string, data: Record<string, any>): Promise<boolean> {
+export async function setFirestoreDoc(docPath: string, data: Record<string, any>, authToken?: string): Promise<boolean> {
   try {
     const fields: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
@@ -82,17 +104,50 @@ export async function setFirestoreDoc(docPath: string, data: Record<string, any>
         fields[k] = toFirestoreValue(v);
       }
     }
-    const res = await fetch(`${BASE_URL}/${docPath}`, {
+    const res = await fetch(getApiUrl(docPath), {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers: getRequestHeaders(authToken, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ fields }),
     });
     return res.ok;
   } catch (e) {
     console.warn(`[FirestoreREST] setDoc error for ${docPath}:`, e);
     return false;
+  }
+}
+
+export async function deleteFirestoreDoc(docPath: string, authToken?: string): Promise<boolean> {
+  try {
+    const res = await fetch(getApiUrl(docPath), {
+      method: 'DELETE',
+      headers: getRequestHeaders(authToken),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn(`[FirestoreREST] deleteDoc error for ${docPath}:`, e);
+    return false;
+  }
+}
+
+export async function listFirestoreCollection<T = Record<string, any>>(collectionPath: string, authToken?: string): Promise<T[]> {
+  try {
+    const res = await fetch(getApiUrl(collectionPath), {
+      headers: getRequestHeaders(authToken),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as any;
+    if (!data || !Array.isArray(data.documents)) return [];
+    
+    return data.documents.map((doc: any) => {
+      const fields = doc.fields || {};
+      const resObj: Record<string, any> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        resObj[k] = fromFirestoreValue(v);
+      }
+      return resObj as T;
+    });
+  } catch (e) {
+    console.warn(`[FirestoreREST] listCollection error for ${collectionPath}:`, e);
+    return [];
   }
 }
