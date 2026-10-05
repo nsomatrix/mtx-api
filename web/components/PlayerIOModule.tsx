@@ -80,6 +80,22 @@ function AnimatedNumber({ value, duration = 750, prefix = '', suffix = '' }: { v
   return <span>{prefix}{displayValue}{suffix}</span>;
 }
 
+function AnimatedTextWithNumbers({ text }: { text: string }) {
+  if (!text) return null;
+  const parts = text.split(/(\d+)/);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (/^\d+$/.test(part)) {
+          const num = parseInt(part, 10);
+          return <AnimatedNumber key={i} value={num} duration={750} />;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 export function PlayerIOModule() {
   const [mounted, setMounted] = useState(false);
 
@@ -985,7 +1001,7 @@ export function PlayerIOModule() {
             <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 font-mono font-bold text-sm shrink-0">
-                  {equipmentPlayer.level}
+                  <AnimatedNumber value={equipmentPlayer.level} />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
@@ -1056,7 +1072,7 @@ export function PlayerIOModule() {
                               <span className={`text-xs font-semibold ${style.title}`}>{item.name}</span>
                               {item.upgrade > 0 && !isMount && (
                                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${style.badge}`}>
-                                  +{item.upgrade}
+                                  +<AnimatedNumber value={item.upgrade} />
                                 </span>
                               )}
                               {item.isBound && (
@@ -1066,12 +1082,12 @@ export function PlayerIOModule() {
                               )}
                             </div>
                             <p className="text-[10px] font-mono text-zinc-500">
-                              {slotName} • Req Lvl {item.reqLevel}
-                              {item.durability !== undefined && item.durability > 0
-                                ? ` • ${item.durability} Durability`
-                                : item.sockets
-                                ? ` • ${item.sockets} Sockets`
-                                : ''}
+                              {slotName} • Req Lvl <AnimatedNumber value={item.reqLevel} />
+                              {item.durability !== undefined && item.durability > 0 ? (
+                                <> • <AnimatedNumber value={item.durability} /> Durability</>
+                              ) : item.sockets ? (
+                                <> • <AnimatedNumber value={item.sockets} /> Sockets</>
+                              ) : ''}
                               {item.expiresIn && item.expiresIn !== 'Permanent' ? ` • Exp: ${item.expiresIn}` : ''}
                             </p>
                           </div>
@@ -1082,7 +1098,7 @@ export function PlayerIOModule() {
                             {item.options.map((opt, oIdx) => (
                               <div key={oIdx} className="flex items-center space-x-1">
                                 <span className="text-zinc-600">•</span>
-                                <span>{opt.text}</span>
+                                <span><AnimatedTextWithNumbers text={opt.text} /></span>
                               </div>
                             ))}
                           </div>
