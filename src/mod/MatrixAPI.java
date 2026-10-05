@@ -93,10 +93,26 @@ public class MatrixAPI {
         MatrixLogger.logPacketRecv(packetId);
     }
 
+    private static bp currentInspectedPlayer = null;
+
     public static void onPacketReceived(ce packet) {
         if (packet == null) return;
         MatrixWebClient.startPollingLoop();
         MatrixLogger.logPacketRecv(packet.a);
+
+        // When Packet 94 (Item Option Details) arrives, re-post current inspected player stats
+        if (packet.a == 94 && currentInspectedPlayer != null) {
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        Thread.sleep(150);
+                    } catch (Exception e) {}
+                    if (currentInspectedPlayer != null) {
+                        MatrixWebClient.postPlayerStats(currentInspectedPlayer);
+                    }
+                }
+            }).start();
+        }
 
         // Auto-dump items when game data resources packet arrives (Packet -28 or -29)
         if (packet.a == -28 || packet.a == -29) {
@@ -127,6 +143,7 @@ public class MatrixAPI {
 
     public static boolean checkAndHandleWebInspect(final bp player) {
         if (player == null || player.ab == null) return false;
+        currentInspectedPlayer = player;
 
         // Dispatch Packet 94 to request item option stats for all equipment slots
         try {
@@ -145,11 +162,11 @@ public class MatrixAPI {
             MatrixNet.markWebFulfilled(player.ab);
         }
 
-        // Wait 400ms for incoming Packet 94 option detail packets to unpack completely before posting atomic snapshot
+        // Wait 500ms for incoming Packet 94 option detail packets to unpack completely before posting atomic snapshot
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    Thread.sleep(400);
+                    Thread.sleep(500);
                 } catch (Exception e) {}
                 MatrixLogger.logPlayerInfo(player);
             }

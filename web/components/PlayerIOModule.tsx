@@ -1005,9 +1005,7 @@ export function PlayerIOModule() {
                   {currentEquip.map((item, idx) => {
                     const slotName = SLOT_NAMES[item.type] || 'Slot';
                     const style = getUpgradeStyle(item.upgrade || 0);
-                    const rarityLabel = item.rarityDesc || (item.rarity === 3 ? 'Violet' : item.rarity === 2 ? 'Yellow' : item.rarity === 1 ? 'Blue' : '');
                     const isMount = item.type === 33;
-                    const upgradeLabel = isMount ? `LV ${item.upgrade}` : `+${item.upgrade}`;
 
                     return (
                       <div key={idx} className="p-3 hover:bg-zinc-900/60 transition-colors space-y-2">
@@ -1015,14 +1013,9 @@ export function PlayerIOModule() {
                           <div className="space-y-0.5">
                             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                               <span className={`text-xs font-semibold ${style.title}`}>{item.name}</span>
-                              {item.upgrade > 0 && (
+                              {item.upgrade > 0 && !isMount && (
                                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${style.badge}`}>
-                                  {upgradeLabel}
-                                </span>
-                              )}
-                              {rarityLabel && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                  {rarityLabel}
+                                  +{item.upgrade}
                                 </span>
                               )}
                               {item.isBound && (
