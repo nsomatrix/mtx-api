@@ -9,7 +9,7 @@ export interface ItemOption {
 export interface EquipmentItem {
   tab: number; // 1 = Equipment 1, 2 = Equipment 2
   slotIndex: number;
-  type: number; // 0=Weapon, 1=Sub-Weapon, 2=Coat, 3=Necklace, 4=Gloves, 5=Ring, 6=Pants, 7=Jade, 8=Shoes, 9=Charm
+  type: number; // 0=Cord, 1=Weapon, 2=Coat, 3=Necklace, 4=Gloves, 5=Ring, 6=Pants, 7=Jade, 8=Shoes, 9=Charm
   name: string;
   upgrade: number; // e.g. 12 (+12)
   reqLevel: number;

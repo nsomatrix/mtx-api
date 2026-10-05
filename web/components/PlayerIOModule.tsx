@@ -117,8 +117,8 @@ export function PlayerIOModule() {
   }, [selectedPlayer, equipmentPlayer]);
 
   const SLOT_NAMES: { [key: number]: string } = {
-    0: 'Weapon',
-    1: 'Sub-Weapon / Weapon',
+    0: 'Cord',
+    1: 'Weapon',
     2: 'Coat / Top Armor',
     3: 'Necklace',
     4: 'Gloves',

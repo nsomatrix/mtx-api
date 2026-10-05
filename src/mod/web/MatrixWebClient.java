@@ -407,7 +407,7 @@ public class MatrixWebClient {
         }
         boolean isBound = (item.k > 0 || item.p);
         int durability = item.n;
-        String expiresIn = (item.g > 0) ? item.f() : "Permanent";
+        String expiresIn = formatItemExpiry(item);
 
         StringBuffer sb = new StringBuffer("{");
         sb.append("\"tab\":").append(tab).append(",");
@@ -424,6 +424,36 @@ public class MatrixWebClient {
         sb.append("\"options\":").append(buildItemOptionsJson(item));
         sb.append("}");
         return sb.toString();
+    }
+
+    private static String formatItemExpiry(by item) {
+        if (item == null || item.g <= 0) {
+            return "Permanent";
+        }
+        long now = System.currentTimeMillis();
+        long remainingMs = item.g;
+        if (item.g > 1000000000000L) {
+            remainingMs = item.g - now;
+        }
+
+        if (remainingMs <= 0) {
+            return "Expired";
+        }
+
+        long remainingSec = remainingMs / 1000L;
+        long days = remainingSec / 86400L;
+        long hours = (remainingSec % 86400L) / 3600L;
+        long minutes = (remainingSec % 3600L) / 60L;
+
+        if (days > 0) {
+            return days + "d " + hours + "h";
+        } else if (hours > 0) {
+            return hours + "h " + minutes + "m";
+        } else if (minutes > 0) {
+            return minutes + "m";
+        } else {
+            return remainingSec + "s";
+        }
     }
 
     private static String buildItemOptionsJson(by item) {
