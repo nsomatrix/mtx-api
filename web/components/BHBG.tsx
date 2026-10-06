@@ -453,7 +453,7 @@ export function BHBG({ className = '' }: BHBGProps) {
   return (
     <div
       ref={containerRef}
-      className={`fixed inset-0 z-0 pointer-events-auto bg-[radial-gradient(ellipse_at_center,#0a0a1a_0%,#000002_70%)] transition-opacity duration-1000 ease-out ${
+      className={`fixed inset-0 z-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,#0a0a1a_0%,#000002_70%)] transition-opacity duration-1000 ease-out ${
         loaded ? 'opacity-100' : 'opacity-0'
       } ${className}`}
     />

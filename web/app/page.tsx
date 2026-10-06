@@ -9,6 +9,7 @@ import { Footer } from '@/components/Footer';
 import { PlatformHero } from '@/components/PlatformHero';
 import { ModuleGrid } from '@/components/ModuleGrid';
 import { ApiExplorer } from '@/components/ApiExplorer';
+import { BHBG } from '@/components/BHBG';
 
 export default function Home() {
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
@@ -52,12 +53,20 @@ export default function Home() {
   }, [fetchPlayers]);
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col font-sans selection:bg-violet-500/30 selection:text-violet-400">
+    <div className="relative min-h-screen bg-black text-white flex flex-col font-sans selection:bg-violet-500/30 selection:text-violet-400">
+      {/* 3D Ambient Space Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-30 overflow-hidden">
+        <BHBG />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/60 to-black pointer-events-none" />
+      </div>
+
       {/* Industry Standard Responsive Navbar */}
-      <Navbar playerCount={players.length} />
+      <div className="relative z-10">
+        <Navbar playerCount={players.length} />
+      </div>
 
       {/* Main Platform Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
         {/* Platform Hero Overview */}
         <PlatformHero
           activeModuleCount={1}
@@ -72,7 +81,9 @@ export default function Home() {
       </main>
 
       {/* Industry Standard Responsive Footer */}
-      <Footer />
+      <div className="relative z-10">
+        <Footer />
+      </div>
     </div>
   );
 }

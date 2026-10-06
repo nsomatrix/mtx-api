@@ -25,6 +25,57 @@ public class MatrixWebClient {
     public static String operatorToken = loadOperatorTokenFromRMS();
     private static Thread pollThread = null;
 
+    private static final java.util.Vector postQueue = new java.util.Vector();
+    private static Thread workerThread = null;
+    private static boolean workerRunning = true;
+
+    /**
+     * Enqueues an asynchronous outbound HTTP task to a dedicated single worker thread.
+     * Prevents unbounded thread creation and memory exhaustion on J2ME runtimes.
+     */
+    private static void enqueueHttpTask(Runnable task) {
+        if (task == null) return;
+        synchronized (postQueue) {
+            if (postQueue.size() >= 40) {
+                postQueue.removeElementAt(0); // Evict oldest task to keep memory footprint bounded
+            }
+            postQueue.addElement(task);
+            postQueue.notify();
+
+            if (workerThread == null || !workerThread.isAlive()) {
+                workerRunning = true;
+                workerThread = new Thread(new Runnable() {
+                    public void run() {
+                        MatrixLogger.log("WEB-REST", "Outbound HTTP Worker thread active.");
+                        while (workerRunning) {
+                            Runnable current = null;
+                            synchronized (postQueue) {
+                                while (postQueue.size() == 0 && workerRunning) {
+                                    try {
+                                        postQueue.wait(3000);
+                                    } catch (InterruptedException ie) {}
+                                }
+                                if (!workerRunning) break;
+                                if (postQueue.size() > 0) {
+                                    current = (Runnable) postQueue.elementAt(0);
+                                    postQueue.removeElementAt(0);
+                                }
+                            }
+                            if (current != null) {
+                                try {
+                                    current.run();
+                                } catch (Exception ex) {
+                                    MatrixLogger.log("WEB-REST", "HTTP Worker task error: " + ex.getMessage());
+                                }
+                            }
+                        }
+                    }
+                });
+                workerThread.start();
+            }
+        }
+    }
+
     /**
      * Resolves the full POST players API URL regardless of how user entered it.
      */
@@ -323,16 +374,17 @@ public class MatrixWebClient {
         } catch (Exception e) {}
         final String schoolName = schoolNameVal;
 
-        // Run HTTP request on worker thread to avoid blocking main J2ME loop
-        Thread webThread = new Thread(new Runnable() {
+        final String jsonPayload = buildPlayerJson(player, className, schoolName);
+        final String targetName = player.ab;
+
+        // Queue HTTP POST task on single worker thread to prevent thread explosion
+        enqueueHttpTask(new Runnable() {
             public void run() {
                 HttpConnection conn = null;
                 OutputStream os = null;
                 InputStream is = null;
                 try {
-                    String jsonPayload = buildPlayerJson(player, className, schoolName);
-
-                    MatrixLogger.log("WEB-REST", "Sending REST POST to " + postUrl + " for: \"" + player.ab + "\"");
+                    MatrixLogger.log("WEB-REST", "Sending REST POST to " + postUrl + " for: \"" + targetName + "\"");
 
                     conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
                     conn.setRequestMethod(HttpConnection.POST);
@@ -347,7 +399,7 @@ public class MatrixWebClient {
                     os.flush();
 
                     int responseCode = conn.getResponseCode();
-                    MatrixLogger.log("WEB-REST", "REST Response Code: " + responseCode + " for target: " + player.ab);
+                    MatrixLogger.log("WEB-REST", "REST Response Code: " + responseCode + " for target: " + targetName);
 
                     // Read response if available
                     if (responseCode == HttpConnection.HTTP_OK || responseCode == HttpConnection.HTTP_CREATED) {
@@ -368,7 +420,6 @@ public class MatrixWebClient {
                 }
             }
         });
-        webThread.start();
     }
 
     /**
@@ -578,21 +629,21 @@ public class MatrixWebClient {
         final String postUrl = getPlayersEndpointUrl();
         if (postUrl == null) return;
 
-        Thread webThread = new Thread(new Runnable() {
+        StringBuffer sb = new StringBuffer();
+        sb.append("{");
+        sb.append("\"name\":").append(quote(playerName)).append(",");
+        sb.append("\"status\":").append(quote("OFFLINE")).append(",");
+        sb.append("\"online\":false,");
+        sb.append("\"error\":").append(quote(noticeText));
+        sb.append("}");
+        final String jsonPayload = sb.toString();
+
+        enqueueHttpTask(new Runnable() {
             public void run() {
                 HttpConnection conn = null;
                 OutputStream os = null;
                 InputStream is = null;
                 try {
-                    StringBuffer sb = new StringBuffer();
-                    sb.append("{");
-                    sb.append("\"name\":").append(quote(playerName)).append(",");
-                    sb.append("\"status\":").append(quote("OFFLINE")).append(",");
-                    sb.append("\"online\":false,");
-                    sb.append("\"error\":").append(quote(noticeText));
-                    sb.append("}");
-                    String jsonPayload = sb.toString();
-
                     MatrixLogger.log("WEB-REST", "Posting Offline Status to REST API for: \"" + playerName + "\"");
 
                     conn = (HttpConnection) Connector.open(postUrl, Connector.READ_WRITE, true);
@@ -618,7 +669,6 @@ public class MatrixWebClient {
                 }
             }
         });
-        webThread.start();
     }
 
     private static String quote(String input) {
