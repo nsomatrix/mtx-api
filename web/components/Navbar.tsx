@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Shield, Menu, X, Activity, Search, FileText, LogIn, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
@@ -18,10 +18,38 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const { user, logout, loading } = useAuth();
   const { modClientOnline, playerCount: statusPlayerCount } = useStatus();
   const livePlayerCount = playerCount || statusPlayerCount;
+
+  // Close user dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    }
+    if (userDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [userDropdownOpen]);
+
+  // Close menus on Escape key
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setUserDropdownOpen(false);
+        setMobileMenuOpen(false);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', href: '/', icon: Activity, disabled: false },
@@ -111,10 +139,13 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
             {loading ? (
               <div className="w-20 h-8 rounded-xl bg-zinc-900 border border-zinc-800 animate-pulse"></div>
             ) : user ? (
-              <div className="relative">
+              <div className="relative" ref={dropdownRef}>
                 <button
+                  type="button"
                   onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                  className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-white transition-all"
+                  className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-white transition-all cursor-pointer select-none"
+                  aria-expanded={userDropdownOpen}
+                  aria-haspopup="true"
                 >
                   {user.photoURL ? (
                     <img
@@ -127,31 +158,44 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
                       {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
                     </div>
                   )}
-                  <span className="font-medium max-w-[100px] truncate text-[11px]">
+                  <span className="font-medium max-w-[120px] truncate text-[11px]">
                     {user.displayName || user.email?.split('@')[0]}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-zinc-500 transition-transform duration-200 ${
+                      userDropdownOpen ? 'rotate-180 text-violet-400' : ''
+                    }`}
+                  />
                 </button>
 
                 {/* Dropdown Menu */}
                 {userDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl p-1.5 z-50 animate-fade-in">
-                    <div className="px-3 py-2 border-b border-zinc-900 mb-1">
+                  <div className="absolute right-0 mt-2 w-56 bg-zinc-950/95 backdrop-blur-2xl border border-zinc-800/90 rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.85)] p-2 z-[100] animate-fade-in divide-y divide-zinc-900">
+                    <div className="px-3 py-2.5 mb-1 space-y-0.5">
                       <p className="text-xs font-semibold text-white truncate">
-                        {user.displayName || 'User Profile'}
+                        {user.displayName || user.email?.split('@')[0] || 'User Profile'}
                       </p>
-                      <p className="text-[10px] text-zinc-500 truncate">{user.email}</p>
+                      <p className="text-[10px] font-mono text-zinc-400 truncate">{user.email}</p>
                     </div>
-                    <button
-                      onClick={() => {
-                        setUserDropdownOpen(false);
-                        logout();
-                      }}
-                      className="w-full flex items-center space-x-2 px-3 py-2 text-xs text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Sign Out</span>
-                    </button>
+                    <div className="pt-1.5">
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setUserDropdownOpen(false);
+                          try {
+                            await logout();
+                          } catch (err) {
+                            console.error('Logout error:', err);
+                          }
+                        }}
+                        className="w-full flex items-center space-x-2.5 px-3 py-2.5 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer group"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-400 group-hover:-translate-x-0.5 transition-transform" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -242,29 +286,54 @@ export function Navbar({ playerCount = 0 }: NavbarProps) {
               })}
             </nav>
 
-            <div className="pt-2 border-t border-zinc-900">
+            <div className="pt-3 border-t border-zinc-800/80 space-y-2">
               {user ? (
-                <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-900 border border-zinc-800">
-                  <div className="flex items-center space-x-2">
-                    <UserIcon className="w-4 h-4 text-violet-400" />
-                    <span className="text-xs font-mono text-white truncate">
-                      {user.displayName || user.email}
-                    </span>
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 space-y-3">
+                  <div className="flex items-center space-x-3">
+                    {user.photoURL ? (
+                      <img
+                        src={user.photoURL}
+                        alt={user.displayName || 'User'}
+                        className="w-10 h-10 rounded-full border border-violet-500/40 object-cover"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-violet-500/20 text-violet-400 flex items-center justify-center text-sm font-bold border border-violet-500/30">
+                        {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white truncate">
+                        {user.displayName || user.email?.split('@')[0] || 'User Profile'}
+                      </p>
+                      <p className="text-[11px] font-mono text-zinc-400 truncate">
+                        {user.email}
+                      </p>
+                    </div>
                   </div>
                   <button
-                    onClick={() => logout()}
-                    className="p-1.5 rounded text-rose-400 hover:bg-rose-500/10"
+                    type="button"
+                    onClick={async () => {
+                      setMobileMenuOpen(false);
+                      try {
+                        await logout();
+                      } catch (err) {
+                        console.error('Logout error:', err);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 text-xs font-semibold transition-all cursor-pointer"
                   >
                     <LogOut className="w-4 h-4" />
+                    <span>Sign Out</span>
                   </button>
                 </div>
               ) : (
                 <button
+                  type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
                     setAuthModalOpen(true);
                   }}
-                  className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/30 text-violet-400 text-xs font-mono font-bold"
+                  className="w-full flex items-center justify-center space-x-2 py-3 rounded-xl bg-violet-500/10 border border-violet-500/30 text-violet-400 hover:bg-violet-500/20 active:bg-violet-500/30 text-xs font-mono font-bold transition-all cursor-pointer"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>SIGN IN TO PORTAL</span>
